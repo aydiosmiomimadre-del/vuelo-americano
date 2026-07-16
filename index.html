@@ -32,6 +32,8 @@
       --brass: #B8863B;
       --brass-bright: #D9A857;
       --stone: #8C8272;
+      --amber: #C9962B;
+      --amber-bright: #E8B84B;
     }
 
     html, body, #map {
@@ -111,14 +113,19 @@
     .tab.is-active .tab-label { color: var(--ink); }
     .tab.is-active .tab-years { color: rgba(20,17,15,0.65); }
 
-    /* --- Catastro overlay toggle: visually distinct from the base-layer
-       tabs above since it's additive (checkbox-like), not exclusive --- */
+    /* --- Catastro overlay toggle: its own row below the base-layer tabs,
+       in a distinct amber shade so it visually reads as "additive layer"
+       rather than another exclusive tab --- */
+    .overlay-row {
+      margin-top: 5px;
+    }
     .overlay-toggle {
       font-family: 'Inter', sans-serif;
-      background: transparent;
-      border: 1px dashed var(--panel-line);
-      color: var(--stone);
-      border-radius: 2px;
+      background: linear-gradient(180deg, rgba(29,24,16,0.96), rgba(20,17,15,0.94));
+      border: 1px solid rgba(201, 150, 43, 0.5);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+      color: var(--amber-bright);
+      border-radius: 3px;
       padding: 5px 10px;
       display: flex;
       align-items: center;
@@ -126,8 +133,9 @@
       transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
       white-space: nowrap;
       cursor: pointer;
+      width: fit-content;
     }
-    .overlay-toggle:hover { border-color: var(--brass); color: var(--parchment); }
+    .overlay-toggle:hover { border-color: var(--amber-bright); }
     .overlay-toggle .toggle-label {
       font-size: 10.5px;
       font-weight: 600;
@@ -138,26 +146,19 @@
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      border: 1px solid var(--brass);
+      border: 1px solid var(--amber);
       background: transparent;
       transition: background-color 150ms ease;
       flex-shrink: 0;
     }
     .overlay-toggle.is-on {
-      border-style: solid;
-      border-color: var(--brass-bright);
-      color: var(--parchment);
+      border-color: var(--amber-bright);
+      background: var(--amber);
+      color: var(--ink);
     }
+    .overlay-toggle.is-on .toggle-label { color: var(--ink); }
     .overlay-toggle.is-on .toggle-dot {
-      background: var(--brass-bright);
-    }
-
-    .tabbar-divider {
-      width: 1px;
-      align-self: stretch;
-      background: var(--panel-line);
-      margin: 2px 1px;
-      flex-shrink: 0;
+      background: var(--amber-bright);
     }
 
     /* --- Instrument-style recenter dial --- */
@@ -211,11 +212,11 @@
         <span class="tab-label">Satellite</span>
         <span class="tab-years">Today</span>
       </button>
+    </div>
 
-      <div class="tabbar-divider"></div>
-
-      <!-- Catastro parcel boundary overlay — independent toggle, stacks on
-           top of whichever base layer above is currently active -->
+    <!-- Catastro parcel boundary overlay — independent toggle on its own
+         row, stacks on top of whichever base layer above is active -->
+    <div class="overlay-row pointer-events-auto">
       <button onclick="toggleCatastro()" id="btn-catastro" class="overlay-toggle">
         <span class="toggle-dot"></span>
         <span class="toggle-label">Catastro</span>

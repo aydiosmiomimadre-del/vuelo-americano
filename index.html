@@ -9,10 +9,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Type: Inter (UI), IBM Plex Mono (year labels) -->
+  <!-- Type: Fraunces (title), Inter (UI), IBM Plex Mono (year labels) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <script src="https://cdn.tailwindcss.com"></script>
 
@@ -50,6 +50,17 @@
       border: 1px solid var(--panel-line);
     }
     .leaflet-control-attribution a { color: var(--brass) !important; }
+
+    .title-line {
+      font-family: 'Fraunces', serif;
+      font-style: italic;
+      font-optical-sizing: auto;
+      font-weight: 500;
+      font-size: 12.5px;
+      color: var(--stone);
+      letter-spacing: 0.01em;
+      margin: 0 0 5px 2px;
+    }
 
     /* --- Slim tab bar --- */
     .tabbar {
@@ -128,16 +139,17 @@
   <!-- Map Container -->
   <div id="map" class="absolute inset-0 z-0"></div>
 
-  <!-- Top UI Overlay: slim tab bar only -->
+  <!-- Top UI Overlay: small title + slim tab bar -->
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
+    <p class="title-line">... Donde está el terreno de abuelo?</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
       <button onclick="setLayer('serieB')" id="btn-serieB" class="tab is-active">
         <span class="tab-label">Serie B</span>
         <span class="tab-years">1956–57</span>
       </button>
-      <button onclick="setLayer('interministerial')" id="btn-interministerial" class="tab">
-        <span class="tab-label">Interminist.</span>
-        <span class="tab-years">1973–86</span>
+      <button onclick="setLayer('nacional')" id="btn-nacional" class="tab">
+        <span class="tab-label">Nacional</span>
+        <span class="tab-years">1981–86</span>
       </button>
       <button onclick="setLayer('modern')" id="btn-modern" class="tab">
         <span class="tab-label">Modern</span>
@@ -189,10 +201,13 @@
     // service — it only exists as individually browsable frames in IGN's
     // Fototeca digital viewer (https://fototeca.cnig.es/), not as a
     // stitched orthophoto. As a substitute historical layer, this uses the
-    // Interministerial flight (1973-86), a real national mosaic.
-    const interministerial = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
+    // "Vuelo Nacional" (1981-86), which IGN's own capabilities describe as
+    // covering the entirety of Spanish territory — unlike the
+    // Interministerial flight, which was shot piecemeal by four different
+    // ministries and leaves large gaps (shows as blank white tiles).
+    const nacional = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
-      layers: 'Interministerial_1973-1986'
+      layers: 'Nacional_1981-1986'
     });
 
     // Modern Street Map (OpenStreetMap)
@@ -202,14 +217,14 @@
     });
 
     // Debug helper: log the exact failing tile URL to console.
-    [serieB, interministerial].forEach(layer => {
+    [serieB, nacional].forEach(layer => {
       layer.on('tileerror', function (err) {
         console.error('WMS tile failed:', err.tile.src);
       });
     });
 
     // Store layers in an object for easy switching
-    const layers = { serieB, interministerial, modern };
+    const layers = { serieB, nacional, modern };
     let activeLayer = 'serieB';
 
     // Default to Serie B (the most complete historical flight)

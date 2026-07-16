@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Vuelos Americanos GPS</title>
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Tailwind CSS for rapid styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    /* Hide Leaflet default zoom controls to keep UI clean for mobile */
+    .leaflet-control-zoom {
+      display: none !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white font-sans overflow-hidden">
+
+  <!-- Map Container -->
+  <div id="map" class="absolute inset-0 z-0"></div>
+
+  <!-- Top UI Overlay: Layer Selector & Info -->
+  <div class="absolute top-4 left-4 right-4 z-[1000] pointer-events-none flex flex-col gap-2">
+    <div class="bg-black/80 backdrop-blur-md p-3 rounded-xl shadow-lg border border-white/10 pointer-events-auto">
+      <h1 class="text-sm font-bold tracking-wide uppercase text-amber-400">Vuelos Americanos GPS</h1>
+      <p class="text-xs text-gray-300">Compare modern Spain with historical aerial surveys.</p>
+    </div>
+    
+    <!-- Layer Toggle Controls -->
+    <div class="flex gap-2 pointer-events-auto overflow-x-auto no-scrollbar">
+      <button onclick="setLayer('serieA')" id="btn-serieA" class="bg-black/80 backdrop-blur-md text-xs px-3 py-2 rounded-lg border border-white/10 font-semibold transition-all">
+        🇺🇸 Serie A (1945-46)
+      </button>
+      <button onclick="setLayer('serieB')" id="btn-serieB" class="bg-amber-500 text-black text-xs px-3 py-2 rounded-lg border border-amber-400 font-bold transition-all shadow-md shadow-amber-500/20">
+        🇺🇸 Serie B (1956-57)
+      </button>
+      <button onclick="setLayer('modern')" id="btn-modern" class="bg-black/80 backdrop-blur-md text-xs px-3 py-2 rounded-lg border border-white/10 font-semibold transition-all">
+        🗺️ Modern Map
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom Floating Action Button: GPS Recenter -->
+  <button id="recenter-btn" onclick="recenterMap()" class="absolute bottom-6 right-6 z-[1000] bg-amber-500 text-black p-4 rounded-full shadow-xl hover:bg-amber-400 transition-all active:scale-95 border border-amber-400">
+    <!-- Target / GPS Icon -->
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+    </svg>
+  </button>
+
+  <script>
+    // Initialize Map centered on Spain
+    const map = L.map('map', {
+      zoomControl: false,
+      maxZoom: 20
+    }).setView([40.416775, -3.703790], 15);
+
+    // --- WMS & Tile Layers ---
+    // 1. Serie A: US Flight 1945-1946 (Joint Army Map Service)
+    const serieA = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
+      layers: 'AMS_1945-1946',
+      format: 'image/png',
+      transparent: false,
+      maxZoom: 20,
+      attribution: '© Instituto Geográfico Nacional'
+    });
+
+    // 2. Serie B: US Flight 1956-1957 (US Air Force)
+    const serieB = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
+      layers: 'USAF_1956-1957',
+      format: 'image/png',
+      transparent: false,
+      maxZoom: 20,
+      attribution: '© Instituto Geográfico Nacional'
+    });
+
+    // 3. Modern Street Map (OpenStreetMap)
+    const modern = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    });
+
+    // Store layers in an object for easy switching
+    const layers = { serieA, serieB, modern };
+    let activeLayer = 'serieB';
+    
+    // Default to Serie B (the most complete historical flight)
+    serieB.addTo(map);
+
+    // Layer Toggle Function
+    function setLayer(layerKey) {
+      // Remove current layer
+      map.removeLayer(layers[activeLayer]);
+      
+      // Add new layer
+      layers[layerKey].addTo(map);
+      
+      // Update Button UI Styles
+      const keys = Object.keys(layers);
+      keys.forEach(k => {
+        const btn = document.getElementById(`btn-${k}`);
+        if (k === layerKey) {
+          btn.className = "bg-amber-500 text-black text-xs px-3 py-2 rounded-lg border border-amber-400 font-bold transition-all shadow-md shadow-amber-500/20";
+        } else {
+          btn.className = "bg-black/80 backdrop-blur-md text-xs px-3 py-2 rounded-lg border border-white/10 font-semibold transition-all";
+        }
+      });
+      
+      activeLayer = layerKey;
+    }
+
+    // --- Geolocation Tracking ---
+    let userMarker = null;
+    let accuracyCircle = null;
+    let autoCenter = true;
+
+    // Custom blue pulsating dot for user location
+    const gpsIcon = L.divIcon({
+      className: 'relative flex items-center justify-center',
+      html: `
+        <span class="absolute inline-flex h-6 w-6 animate-ping rounded-full bg-sky-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-4 w-4 bg-sky-500 border-2 border-white shadow-md"></span>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    // Handle Geolocation Updates
+    function onLocationFound(e) {
+      const radius = e.accuracy;
+
+      if (!userMarker) {
+        // First run: Create marker and circle
+        userMarker = L.marker(e.latlng, { icon: gpsIcon }).addTo(map);
+        accuracyCircle = L.circle(e.latlng, radius, {
+          color: '#38bdf8',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.15,
+          weight: 1
+        }).addTo(map);
+      } else {
+        // Update positions
+        userMarker.setLatLng(e.latlng);
+        accuracyCircle.setLatLng(e.latlng).setRadius(radius);
+      }
+
+      // Automatically snap to user's location if autoCenter is enabled
+      if (autoCenter) {
+        map.setView(e.latlng, map.getZoom());
+      }
+    }
+
+    function onLocationError(e) {
+      alert("Error finding your location: " + e.message);
+    }
+
+    // Bind map geolocation events
+    map.on('locationfound', onLocationFound);
+    map.on('locationerror', onLocationError);
+
+    // Start tracking the user
+    map.locate({
+      watch: true, 
+      enableHighAccuracy: true
+    });
+
+    // If the user manually drags the map, stop auto-centering
+    map.on('dragstart', () => {
+      autoCenter = false;
+      document.getElementById('recenter-btn').className = "absolute bottom-6 right-6 z-[1000] bg-black/85 text-white p-4 rounded-full shadow-xl hover:bg-black/70 transition-all border border-white/20";
+    });
+
+    // Manual Recenter Button Function
+    function recenterMap() {
+      autoCenter = true;
+      document.getElementById('recenter-btn').className = "absolute bottom-6 right-6 z-[1000] bg-amber-500 text-black p-4 rounded-full shadow-xl hover:bg-amber-400 transition-all active:scale-95 border border-amber-400";
+      
+      if (userMarker) {
+        map.setView(userMarker.getLatLng(), 17);
+      } else {
+        // Re-trigger location check if not found yet
+        map.locate({ setView: true, maxZoom: 17 });
+      }
+    }
+  </script>
+</body>
+</html>

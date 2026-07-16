@@ -147,12 +147,12 @@
         <span class="tab-label">Serie B</span>
         <span class="tab-years">1956–57</span>
       </button>
-      <button onclick="setLayer('nacional')" id="btn-nacional" class="tab">
-        <span class="tab-label">Nacional</span>
-        <span class="tab-years">1981–86</span>
+      <button onclick="setLayer('pnoa2004')" id="btn-pnoa2004" class="tab">
+        <span class="tab-label">PNOA</span>
+        <span class="tab-years">2004</span>
       </button>
       <button onclick="setLayer('modern')" id="btn-modern" class="tab">
-        <span class="tab-label">Modern</span>
+        <span class="tab-label">Satellite</span>
         <span class="tab-years">Today</span>
       </button>
     </div>
@@ -200,31 +200,38 @@
     // NOTE: "Serie A" (1945-46) has NO national WMS mosaic layer on this
     // service — it only exists as individually browsable frames in IGN's
     // Fototeca digital viewer (https://fototeca.cnig.es/), not as a
-    // stitched orthophoto. As a substitute historical layer, this uses the
-    // "Vuelo Nacional" (1981-86), which IGN's own capabilities describe as
-    // covering the entirety of Spanish territory — unlike the
-    // Interministerial flight, which was shot piecemeal by four different
-    // ministries and leaves large gaps (shows as blank white tiles).
-    const nacional = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
+    // stitched orthophoto. "Nacional" and "Interministerial" were both
+    // tried and confirmed (via the infoVuelos query layer and direct
+    // GetMap tests) to have large coverage gaps over Madrid. PNOA2004 is
+    // the first year of the modern annual PNOA program and has confirmed,
+    // complete national coverage.
+    const pnoa2004 = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
-      layers: 'Nacional_1981-1986'
+      layers: 'PNOA2004'
     });
 
-    // Modern Street Map (OpenStreetMap)
-    const modern = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap contributors'
+    // Modern satellite/orthophoto imagery — IGN's own current PNOA
+    // "máxima actualidad" service. Unlike the historical layers, this is a
+    // modern INSPIRE-compliant WMS that properly supports Web Mercator
+    // (EPSG:3857), so it doesn't need the CRS/version workaround.
+    const modern = L.tileLayer.wms('https://www.ign.es/wms-inspire/pnoa-ma', {
+      layers: 'OI.OrthoimageCoverage',
+      format: 'image/jpeg',
+      transparent: false,
+      version: '1.3.0',
+      maxZoom: 20,
+      attribution: '© Instituto Geográfico Nacional (IGN) — PNOA'
     });
 
     // Debug helper: log the exact failing tile URL to console.
-    [serieB, nacional].forEach(layer => {
+    [serieB, pnoa2004, modern].forEach(layer => {
       layer.on('tileerror', function (err) {
         console.error('WMS tile failed:', err.tile.src);
       });
     });
 
     // Store layers in an object for easy switching
-    const layers = { serieB, nacional, modern };
+    const layers = { serieB, pnoa2004, modern };
     let activeLayer = 'serieB';
 
     // Default to Serie B (the most complete historical flight)

@@ -359,74 +359,78 @@
       }
     }
 
-    // --- Geolocation Tracking ---
-    let userMarker = null;
-    let accuracyCircle = null;
-    let autoCenter = true;
+// --- Geolocation Tracking ---
+let userMarker = null;
+let accuracyCircle = null;
+let autoCenter = true;
+let watchId = null;
 
+// Custom brass pulsating dot for user location
+const gpsIcon = L.divIcon({
+  className: 'relative flex items-center justify-center',
+  html: `
+    <span class="absolute inline-flex h-6 w-6 rounded-full opacity-70" style="background:#C89B4A; animation: ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></span>
+    <span class="relative inline-flex rounded-full h-4 w-4 border-2" style="background:#D9A857; border-color:#14110F;"></span>
+  `,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
 
-    // Custom brass pulsating dot for user location
-    const gpsIcon = L.divIcon({
-      className: 'relative flex items-center justify-center',
-      html: `
-        <span class="absolute inline-flex h-6 w-6 rounded-full opacity-70" style="background:#C89B4A; animation: ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></span>
-        <span class="relative inline-flex rounded-full h-4 w-4 border-2" style="background:#D9A857; border-color:#14110F;"></span>
-      `,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
-    });
+function startWatch() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+  }
+  watchId = navigator.geolocation.watchPosition(
+    onLocationFound,
+    onLocationError,
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+}
 
-    // Handle Geolocation Updates
-    function onLocationFound(e) {
-      const radius = e.accuracy;
+function onLocationFound(pos) {
+  const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+  const radius = pos.coords.accuracy;
 
-      if (!userMarker) {
-        userMarker = L.marker(e.latlng, { icon: gpsIcon }).addTo(map);
-        accuracyCircle = L.circle(e.latlng, radius, {
-          color: '#B8863B',
-          fillColor: '#B8863B',
-          fillOpacity: 0.12,
-          weight: 1
-        }).addTo(map);
-      } else {
-        userMarker.setLatLng(e.latlng);
-        accuracyCircle.setLatLng(e.latlng).setRadius(radius);
-      }
+  if (!userMarker) {
+    userMarker = L.marker(latlng, { icon: gpsIcon }).addTo(map);
+    accuracyCircle = L.circle(latlng, radius, {
+      color: '#B8863B', fillColor: '#B8863B', fillOpacity: 0.12, weight: 1
+    }).addTo(map);
+  } else {
+    userMarker.setLatLng(latlng);
+    accuracyCircle.setLatLng(latlng).setRadius(radius);
+  }
 
-      if (autoCenter) {
-        map.setView(e.latlng, map.getZoom());
-      }
-    }
+  if (autoCenter) {
+    map.setView(latlng, map.getZoom());
+  }
+}
 
-    function onLocationError(e) {
-      alert("Error finding your location: " + e.message);
-    }
+function onLocationError(e) {
+  console.warn('Geolocation error:', e.message);
+}
 
-    map.on('locationfound', onLocationFound);
-    map.on('locationerror', onLocationError);
+// If the user manually drags the map, stop auto-centering
+map.on('dragstart', () => {
+  autoCenter = false;
+  document.getElementById('recenter-btn').classList.add('is-idle');
+});
 
-    map.locate({
-      watch: true,
-      enableHighAccuracy: true
-    });
+// Manual Recenter Button Function
+function recenterMap() {
+  autoCenter = true;
+  document.getElementById('recenter-btn').classList.remove('is-idle');
 
-    // If the user manually drags the map, stop auto-centering
-    map.on('dragstart', () => {
-      autoCenter = false;
-      document.getElementById('recenter-btn').classList.add('is-idle');
-    });
+  if (userMarker) {
+    map.setView(userMarker.getLatLng(), 17);
+  }
+}
 
-    // Manual Recenter Button Function
-    function recenterMap() {
-      autoCenter = true;
-      document.getElementById('recenter-btn').classList.remove('is-idle');
+startWatch();
 
-      if (userMarker) {
-        map.setView(userMarker.getLatLng(), 17);
-      } else {
-        map.locate({ setView: true, maxZoom: 17 });
-      }
-    }
+// Force a fresh GPS re-acquire every 15s — works around Firefox Android's
+// tendency to get stuck delivering the same stale/degraded fix forever
+setInterval(startWatch, 15000);
 
     // Register service worker for offline support + installability
     if ('serviceWorker' in navigator) {

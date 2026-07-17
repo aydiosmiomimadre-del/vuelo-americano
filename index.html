@@ -376,13 +376,10 @@
     });
 
     // Handle Geolocation Updates
-function onLocationFound(e) {
-  const radius = e.accuracy;
+    function onLocationFound(e) {
+      const radius = e.accuracy;
 
-  // TEMP DEBUG — remove after testing
-  console.log('Accuracy (meters):', radius, 'Coords:', e.latlng);
-
-  if (!userMarker) {
+      if (!userMarker) {
         userMarker = L.marker(e.latlng, { icon: gpsIcon }).addTo(map);
         accuracyCircle = L.circle(e.latlng, radius, {
           color: '#B8863B',

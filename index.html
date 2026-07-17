@@ -360,9 +360,50 @@
     }
 
     // --- Geolocation Tracking ---
-    let userMarker = null;
-    let accuracyCircle = null;
-    let autoCenter = true;
+let userMarker = null;
+let accuracyCircle = null;
+let autoCenter = true;
+let watchId = null;
+
+function startWatch() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+  }
+  watchId = navigator.geolocation.watchPosition(
+    onLocationFound,
+    onLocationError,
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+}
+
+function onLocationFound(pos) {
+  const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+  const radius = pos.coords.accuracy;
+
+  if (!userMarker) {
+    userMarker = L.marker(latlng, { icon: gpsIcon }).addTo(map);
+    accuracyCircle = L.circle(latlng, radius, {
+      color: '#B8863B', fillColor: '#B8863B', fillOpacity: 0.12, weight: 1
+    }).addTo(map);
+  } else {
+    userMarker.setLatLng(latlng);
+    accuracyCircle.setLatLng(latlng).setRadius(radius);
+  }
+
+  if (autoCenter) {
+    map.setView(latlng, map.getZoom());
+  }
+}
+
+function onLocationError(e) {
+  console.warn('Geolocation error:', e.message);
+}
+
+startWatch();
+
+// Force a fresh GPS re-acquire every 15s — works around Firefox Android's
+// tendency to get stuck delivering the same stale/degraded fix forever
+setInterval(startWatch, 15000);
 
     // Custom brass pulsating dot for user location
     const gpsIcon = L.divIcon({

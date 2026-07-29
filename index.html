@@ -102,16 +102,19 @@
       text-transform: uppercase;
     }
     .tab .tab-years {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 9px;
-      color: var(--stone);
+      font-family: 'Inter', sans-serif;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--parchment);
     }
     .tab.is-active {
       background: var(--brass);
       border-color: var(--brass-bright);
     }
     .tab.is-active .tab-label { color: var(--ink); }
-    .tab.is-active .tab-years { color: rgba(20,17,15,0.65); }
+    .tab.is-active .tab-years { color: var(--ink); }
 
     /* --- Overlay toggle row: Catastro + Nombres. Its own row below the
        base-layer tabs, in a distinct amber shade so it visually reads as
@@ -202,15 +205,12 @@
     <p class="title-line">... Donde está el terreno de abuelo?</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
       <button onclick="setLayer('serieB')" id="btn-serieB" class="tab is-active">
-        <span class="tab-label">Serie B</span>
-        <span class="tab-years">1956–57</span>
+        <span class="tab-years">1957</span>
       </button>
       <button onclick="setLayer('pnoa2004')" id="btn-pnoa2004" class="tab">
-        <span class="tab-label">PNOA</span>
         <span class="tab-years">2004</span>
       </button>
       <button onclick="setLayer('modern')" id="btn-modern" class="tab">
-        <span class="tab-label">Satélite</span>
         <span class="tab-years">Hoy</span>
       </button>
     </div>

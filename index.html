@@ -322,14 +322,20 @@
     // 2004 flight only covered Andalucía, Castilla y León, Cataluña,
     // Comunitat Valenciana, Galicia, Murcia, País Vasco and La Rioja.
     // 2005 added Cantabria, SW Castilla y León, Extremadura and Canarias.
-    // Madrid specifically wasn't flown until 2006. So instead of a single
-    // 'PNOA2004' layer, this requests all three years in one WMS call —
-    // later names in the list draw on top, so 2004 imagery is shown
-    // wherever it exists, falling back to 2005, then 2006 (which is what
-    // actually fills in Madrid) wherever 2004/2005 have nothing.
+    // Madrid specifically wasn't flown until 2006.
+    //
+    // Several years' abstracts (2004, 2005, 2007, 2008, 2009) all mention
+    // "Galicia" as covered — but only at the region level, with no
+    // breakdown by province, so there's no way to tell from the metadata
+    // alone which year actually flew Lugo or eastern Ourense specifically.
+    // Rather than guess a single year, 2007 and 2008 are folded into the
+    // same fallback chain as extra candidates. Later names in the list
+    // draw on top, so 2004 still wins wherever it has data; 2005 and 2006
+    // are tried next as before, and now 2007/2008 sit underneath as
+    // further fallbacks for exactly this kind of leftover gap.
     const pnoa2004 = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
-      layers: 'PNOA2006,PNOA2005,PNOA2004'
+      layers: 'PNOA2008,PNOA2007,PNOA2006,PNOA2005,PNOA2004'
     });
 
     // Modern satellite/orthophoto imagery — IGN's own current PNOA

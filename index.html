@@ -204,6 +204,9 @@
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
     <p class="title-line">... Donde está el terreno de abuelo?</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
+      <button onclick="setLayer('fontan')" id="btn-fontan" class="tab">
+        <span class="tab-years">Fontán</span>
+      </button>
       <button onclick="setLayer('minutas')" id="btn-minutas" class="tab">
         <span class="tab-years">Minutas</span>
       </button>
@@ -276,6 +279,42 @@
       keepBuffer: 4,
       updateWhenZooming: false
     };
+
+    // Carta Xeométrica de Galicia (Domingo Fontán, 1834) — the first
+    // scientifically surveyed map of Galicia, 17 years in the making, and
+    // the oldest map in this app by a wide margin (predates Minutas by
+    // ~80 years). Confirmed via the Xunta de Galicia's own ArcGIS REST
+    // catalog (ideg.xunta.gal/servizos/rest/services/MapasBase/Fontan) —
+    // GALICIA ONLY, no coverage elsewhere in Spain.
+    //
+    // This is structurally different from every other layer above: it's
+    // an Esri ArcGIS MapServer, not a WMS. Esri's "tile" cache uses its
+    // own z-numbering (this service's cache level 0 = standard slippy-map
+    // zoom 5, an offset that's easy to get wrong), so instead of fighting
+    // that offset, this hits the MapServer's "export" operation directly
+    // — it renders an arbitrary bounding box on demand, same idea as a
+    // WMS GetMap, just with Esri's own parameter names. That sidesteps
+    // the cache-level mismatch entirely and reprojects on the fly from
+    // the source data's native SRS (ETRS89 / UTM zone 29N) to whatever
+    // bbox Leaflet asks for.
+    const FontanLayer = L.TileLayer.extend({
+      getTileUrl: function (coord) {
+        const tileSize = this.getTileSize();
+        const nwPoint = coord.scaleBy(tileSize);
+        const sePoint = nwPoint.add(tileSize);
+        const nw = L.Projection.SphericalMercator.project(this._map.unproject(nwPoint, coord.z));
+        const se = L.Projection.SphericalMercator.project(this._map.unproject(sePoint, coord.z));
+        const bbox = [nw.x, se.y, se.x, nw.y].join(',');
+        return 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/Fontan/MapServer/export'
+          + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${tileSize.x},${tileSize.y}`
+          + '&format=png32&transparent=true&f=image';
+      }
+    });
+    const fontan = new FontanLayer('', {
+      minZoom: 5,
+      maxZoom: 18,
+      attribution: '© Xunta de Galicia (IET) — Carta Xeométrica de Fontán, 1834'
+    });
 
     // Minutas MTN50 ("catastrones"), 1910-1970 — the actual hand-drawn
     // field sheets surveyors produced before the topographic map was ever
@@ -420,10 +459,10 @@
       });
     }
 
-    [minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => attachTileRetry(layer));
+    [fontan, minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
     // Store base layers in an object for easy switching
-    const layers = { minutas, serieB, pnoa2004, modern };
+    const layers = { fontan, minutas, serieB, pnoa2004, modern };
     let activeLayer = 'serieB';
 
     // Default to Serie B (the most complete historical flight)

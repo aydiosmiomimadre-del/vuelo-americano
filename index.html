@@ -314,12 +314,22 @@
     // Fototeca digital viewer (https://fototeca.cnig.es/), not as a
     // stitched orthophoto. "Nacional" and "Interministerial" were both
     // tried and confirmed (via the infoVuelos query layer and direct
-    // GetMap tests) to have large coverage gaps over Madrid. PNOA2004 is
-    // the first year of the modern annual PNOA program and has confirmed,
-    // complete national coverage.
+    // GetMap tests) to have large coverage gaps over Madrid.
+    //
+    // PNOA2004 alone is NOT nationwide, and that's the real reason it
+    // sometimes "stays all white" — that's not a loading failure, it's a
+    // genuine gap. Confirmed via this service's own GetCapabilities: the
+    // 2004 flight only covered Andalucía, Castilla y León, Cataluña,
+    // Comunitat Valenciana, Galicia, Murcia, País Vasco and La Rioja.
+    // 2005 added Cantabria, SW Castilla y León, Extremadura and Canarias.
+    // Madrid specifically wasn't flown until 2006. So instead of a single
+    // 'PNOA2004' layer, this requests all three years in one WMS call —
+    // later names in the list draw on top, so 2004 imagery is shown
+    // wherever it exists, falling back to 2005, then 2006 (which is what
+    // actually fills in Madrid) wherever 2004/2005 have nothing.
     const pnoa2004 = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
-      layers: 'PNOA2004'
+      layers: 'PNOA2006,PNOA2005,PNOA2004'
     });
 
     // Modern satellite/orthophoto imagery — IGN's own current PNOA

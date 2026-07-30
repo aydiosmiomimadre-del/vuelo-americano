@@ -219,6 +219,9 @@
       <button onclick="setLayer('modern')" id="btn-modern" class="tab">
         <span class="tab-years">Hoy</span>
       </button>
+      <button onclick="setLayer('topo')" id="btn-topo" class="tab">
+        <span class="tab-years">Topo</span>
+      </button>
     </div>
 
     <!-- Catastro parcel boundary + NGBE placename overlays — independent
@@ -392,6 +395,25 @@
       updateWhenZooming: false
     });
 
+    // Current topographic map — IGN's "IGNBaseTodo", a cartographic
+    // (drawn, not photographic) style combining spot heights + contour
+    // lines, hillshaded relief, hydrography, roads, and place names in
+    // one layer. This is the "shows the mountains" map, as opposed to
+    // "Hoy" which is a straight aerial photo. Confirmed the layer name
+    // via this service's own GetCapabilities — same wms-inspire family as
+    // Catastro/Nombres/modern above, so it's INSPIRE-compliant and
+    // supports Web Mercator natively, no CRS workaround needed.
+    const topo = L.tileLayer.wms('https://www.ign.es/wms-inspire/ign-base', {
+      layers: 'IGNBaseTodo',
+      format: 'image/png',
+      transparent: false,
+      version: '1.3.0',
+      maxZoom: 20,
+      attribution: '© Instituto Geográfico Nacional (IGN) — IGNBaseTodo',
+      keepBuffer: 4,
+      updateWhenZooming: false
+    });
+
     // Catastro parcel boundaries — Spain's cadastral WMS, INSPIRE-compliant,
     // so it natively supports Web Mercator (no CRS workaround needed like
     // the historical IGN layers above). transparent:true + png so it draws
@@ -459,10 +481,10 @@
       });
     }
 
-    [fontan, minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => attachTileRetry(layer));
+    [fontan, minutas, serieB, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
     // Store base layers in an object for easy switching
-    const layers = { fontan, minutas, serieB, pnoa2004, modern };
+    const layers = { fontan, minutas, serieB, pnoa2004, modern, topo };
     let activeLayer = 'serieB';
 
     // Default to Serie B (the most complete historical flight)

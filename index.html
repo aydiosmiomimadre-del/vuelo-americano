@@ -264,7 +264,17 @@
       version: '1.1.1',
       crs: L.CRS.EPSG4326,
       maxZoom: 20,
-      attribution: '© Instituto Geográfico Nacional (IGN)'
+      attribution: '© Instituto Geográfico Nacional (IGN)',
+      // These government WMS servers are often slow or flaky, especially
+      // under load — keepBuffer keeps a ring of already-loaded tiles just
+      // outside the viewport instead of discarding them, so a small pan
+      // doesn't immediately expose blank squares at the edges; and
+      // updateWhenZooming:false waits until a pinch/scroll zoom gesture
+      // actually settles before requesting new tiles, instead of firing
+      // off a burst of requests for every intermediate zoom level while
+      // your fingers are still moving.
+      keepBuffer: 4,
+      updateWhenZooming: false
     };
 
     // Minutas MTN50 ("catastrones"), 1910-1970 — the actual hand-drawn
@@ -287,7 +297,9 @@
       transparent: false,
       version: '1.3.0',
       maxZoom: 20,
-      attribution: '© Instituto Geográfico Nacional (IGN) — Minutas MTN50'
+      attribution: '© Instituto Geográfico Nacional (IGN) — Minutas MTN50',
+      keepBuffer: 4,
+      updateWhenZooming: false
     });
 
     // Serie B: US Army Map Service flight, 1956-1957.
@@ -320,7 +332,9 @@
       transparent: false,
       version: '1.3.0',
       maxZoom: 20,
-      attribution: '© Instituto Geográfico Nacional (IGN) — PNOA'
+      attribution: '© Instituto Geográfico Nacional (IGN) — PNOA',
+      keepBuffer: 4,
+      updateWhenZooming: false
     });
 
     // Catastro parcel boundaries — Spain's cadastral WMS, INSPIRE-compliant,
@@ -362,12 +376,35 @@
       attribution: '© Instituto Geográfico Nacional (IGN) — NGBE'
     });
 
-    // Debug helper: log the exact failing tile URL to console.
-    [minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => {
-      layer.on('tileerror', function (err) {
-        console.error('WMS tile failed:', err.tile.src);
+    // Tile retry logic — the free government WMS servers this app relies
+    // on (especially "Hoy"/PNOA-MA and PNOA2004 under load) sometimes
+    // fail to deliver a tile in time, or the connection drops mid-
+    // transfer, leaving a solid black or white square sitting there
+    // instead of the real imagery. Leaflet doesn't retry a failed tile on
+    // its own — once a request errors, that square just stays broken
+    // until you leave and come back. This re-requests the exact same
+    // tile a few times with a short, increasing delay before giving up,
+    // using a cache-busting query param so the browser doesn't just hand
+    // back its own cached failure.
+    function attachTileRetry(layer, maxRetries = 3) {
+      const attemptsByTile = new WeakMap();
+      layer.on('tileerror', (err) => {
+        const tile = err.tile;
+        if (!tile) return;
+        const attempts = attemptsByTile.get(tile) || 0;
+        console.error(`WMS tile failed (attempt ${attempts + 1}):`, tile.src);
+        if (attempts >= maxRetries) return;
+        attemptsByTile.set(tile, attempts + 1);
+        const delay = 700 * (attempts + 1);
+        setTimeout(() => {
+          const url = new URL(tile.src, window.location.href);
+          url.searchParams.set('_retry', Date.now().toString());
+          tile.src = url.toString();
+        }, delay);
       });
-    });
+    }
+
+    [minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
     // Store base layers in an object for easy switching
     const layers = { minutas, serieB, pnoa2004, modern };
@@ -378,6 +415,17 @@
 
     // Base Layer Toggle Function
     function setLayer(layerKey) {
+      // Tapping the tab that's already active doesn't switch anything —
+      // treat it as "reload this layer" instead. This matters because
+      // some stuck black/white tiles are the server responding with bad
+      // image data rather than a network error, which our retry logic
+      // above never sees (no tileerror fires for a "successful" bad
+      // response) — redraw() is the manual escape hatch for those.
+      if (layerKey === activeLayer) {
+        layers[layerKey].redraw();
+        return;
+      }
+
       map.removeLayer(layers[activeLayer]);
       layers[layerKey].addTo(map);
 
@@ -440,6 +488,13 @@
     let accuracyCircle = null;
     let autoCenter = true;
 
+    // Tracks whether the map's next view change was triggered by OUR code
+    // (auto-follow re-centering, or the recenter button) rather than by
+    // the person touching the map. We need this because Leaflet fires the
+    // same 'movestart' event for both cases, and we only want a REAL user
+    // gesture to cancel auto-follow.
+    let programmaticMove = false;
+
     // Custom brass pulsating dot for user location
     const gpsIcon = L.divIcon({
       className: 'relative flex items-center justify-center',
@@ -469,6 +524,7 @@
       }
 
       if (autoCenter) {
+        programmaticMove = true;
         map.setView(e.latlng, map.getZoom());
       }
     }
@@ -485,10 +541,22 @@
       enableHighAccuracy: true
     });
 
-    // If the user manually drags the map, stop auto-centering
-    map.on('dragstart', () => {
+    // If the person manually moves the map — dragging, pinch-zooming,
+    // scroll/wheel zooming, double-tap zoom, anything — stop auto-
+    // centering. 'movestart' (unlike 'dragstart') fires for all of these,
+    // which is what was missing before: zooming out wasn't recognized as
+    // "the user touched the map", so the very next GPS fix would snap
+    // the view straight back. The programmaticMove flag lets us ignore
+    // the movestart that OUR OWN re-centering calls trigger, so this
+    // doesn't immediately cancel itself out.
+    map.on('movestart', () => {
+      if (programmaticMove) return;
       autoCenter = false;
       document.getElementById('recenter-btn').classList.add('is-idle');
+    });
+
+    map.on('moveend', () => {
+      programmaticMove = false;
     });
 
     // Manual Recenter Button Function
@@ -497,10 +565,12 @@
       document.getElementById('recenter-btn').classList.remove('is-idle');
 
       if (userMarker) {
+        programmaticMove = true;
         map.setView(userMarker.getLatLng(), 17);
-      } else {
-        map.locate({ setView: true, maxZoom: 17 });
       }
+      // If there's no fix yet, no need to call locate() again — the
+      // watch() from setup is already running, and now that autoCenter
+      // is true again, the next 'locationfound' tick will center for us.
     }
 
     // Register service worker for offline support + installability

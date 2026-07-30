@@ -204,6 +204,9 @@
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
     <p class="title-line">... Donde está el terreno de abuelo?</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
+      <button onclick="setLayer('minutas')" id="btn-minutas" class="tab">
+        <span class="tab-years">Minutas</span>
+      </button>
       <button onclick="setLayer('serieB')" id="btn-serieB" class="tab is-active">
         <span class="tab-years">1957</span>
       </button>
@@ -263,6 +266,29 @@
       maxZoom: 20,
       attribution: '© Instituto Geográfico Nacional (IGN)'
     };
+
+    // Minutas MTN50 ("catastrones"), 1910-1970 — the actual hand-drawn
+    // field sheets surveyors produced before the topographic map was ever
+    // printed, at 1:25,000 scale but each covering the same ground as one
+    // 1:50,000 MTN50 sheet. Coverage is close to nationwide. This lives on
+    // a DIFFERENT IGN WMS service than the aerial-photo flights above
+    // (primera-edicion-mtn, not pnoa-historico) — confirmed the exact
+    // layer name via that service's own GetCapabilities: the layer's
+    // <Name> is "catastrones" (an older internal term for these sheets).
+    // A couple of secondary sources online reference "MinutasMTN50_raster"
+    // as if it were the layer name, but that's actually just this layer's
+    // <Identifier>, not something you can pass to WMS as `layers` — using
+    // it there will silently return nothing. Unlike the pnoa-historico
+    // flights, this service's capabilities explicitly list EPSG:3857, so
+    // no CRS/version workaround is needed here.
+    const minutas = L.tileLayer.wms('https://www.ign.es/wms/primera-edicion-mtn', {
+      layers: 'catastrones',
+      format: 'image/jpeg',
+      transparent: false,
+      version: '1.3.0',
+      maxZoom: 20,
+      attribution: '© Instituto Geográfico Nacional (IGN) — Minutas MTN50'
+    });
 
     // Serie B: US Army Map Service flight, 1956-1957.
     // Confirmed valid layer name via GetCapabilities.
@@ -337,14 +363,14 @@
     });
 
     // Debug helper: log the exact failing tile URL to console.
-    [serieB, pnoa2004, modern, catastro, nombres].forEach(layer => {
+    [minutas, serieB, pnoa2004, modern, catastro, nombres].forEach(layer => {
       layer.on('tileerror', function (err) {
         console.error('WMS tile failed:', err.tile.src);
       });
     });
 
     // Store base layers in an object for easy switching
-    const layers = { serieB, pnoa2004, modern };
+    const layers = { minutas, serieB, pnoa2004, modern };
     let activeLayer = 'serieB';
 
     // Default to Serie B (the most complete historical flight)

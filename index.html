@@ -257,13 +257,6 @@
     }).setView([40.416775, -3.703790], 15);
 
     // --- WMS Historical Layers ---
-    // These historical layers on ign.es/wms/pnoa-historico only support
-    // their native CRS (EPSG:4258 / geographic coordinates), not Web
-    // Mercator (EPSG:3857), which is what Leaflet requests by default.
-    // Setting `crs: L.CRS.EPSG4326` and `version: '1.1.1'` forces Leaflet
-    // to request tiles in a CRS the server actually supports for these
-    // older mosaics. Without this, tiles silently come back blank/grey.
-
     const wmsCommonOptions = {
       format: 'image/jpeg',
       transparent: false,
@@ -271,35 +264,10 @@
       crs: L.CRS.EPSG4326,
       maxZoom: 20,
       attribution: '© Instituto Geográfico Nacional (IGN)',
-      // These government WMS servers are often slow or flaky, especially
-      // under load — keepBuffer keeps a ring of already-loaded tiles just
-      // outside the viewport instead of discarding them, so a small pan
-      // doesn't immediately expose blank squares at the edges; and
-      // updateWhenZooming:false waits until a pinch/scroll zoom gesture
-      // actually settles before requesting new tiles, instead of firing
-      // off a burst of requests for every intermediate zoom level while
-      // your fingers are still moving.
       keepBuffer: 4,
       updateWhenZooming: false
     };
 
-    // Carta Xeométrica de Galicia (Domingo Fontán, 1834) — the first
-    // scientifically surveyed map of Galicia, 17 years in the making, and
-    // the oldest map in this app by a wide margin (predates Minutas by
-    // ~80 years). Confirmed via the Xunta de Galicia's own ArcGIS REST
-    // catalog (ideg.xunta.gal/servizos/rest/services/MapasBase/Fontan) —
-    // GALICIA ONLY, no coverage elsewhere in Spain.
-    //
-    // This is structurally different from every other layer above: it's
-    // an Esri ArcGIS MapServer, not a WMS. Esri's "tile" cache uses its
-    // own z-numbering (this service's cache level 0 = standard slippy-map
-    // zoom 5, an offset that's easy to get wrong), so instead of fighting
-    // that offset, this hits the MapServer's "export" operation directly
-    // — it renders an arbitrary bounding box on demand, same idea as a
-    // WMS GetMap, just with Esri's own parameter names. That sidesteps
-    // the cache-level mismatch entirely and reprojects on the fly from
-    // the source data's native SRS (ETRS89 / UTM zone 29N) to whatever
-    // bbox Leaflet asks for.
     const FontanLayer = L.TileLayer.extend({
       getTileUrl: function (coord) {
         const tileSize = this.getTileSize();
@@ -319,20 +287,6 @@
       attribution: '© Xunta de Galicia (IET) — Carta Xeométrica de Fontán, 1834'
     });
 
-    // Minutas MTN50 ("catastrones"), 1910-1970 — the actual hand-drawn
-    // field sheets surveyors produced before the topographic map was ever
-    // printed, at 1:25,000 scale but each covering the same ground as one
-    // 1:50,000 MTN50 sheet. Coverage is close to nationwide. This lives on
-    // a DIFFERENT IGN WMS service than the aerial-photo flights above
-    // (primera-edicion-mtn, not pnoa-historico) — confirmed the exact
-    // layer name via that service's own GetCapabilities: the layer's
-    // <Name> is "catastrones" (an older internal term for these sheets).
-    // A couple of secondary sources online reference "MinutasMTN50_raster"
-    // as if it were the layer name, but that's actually just this layer's
-    // <Identifier>, not something you can pass to WMS as `layers` — using
-    // it there will silently return nothing. Unlike the pnoa-historico
-    // flights, this service's capabilities explicitly list EPSG:3857, so
-    // no CRS/version workaround is needed here.
     const minutas = L.tileLayer.wms('https://www.ign.es/wms/primera-edicion-mtn', {
       layers: 'catastrones',
       format: 'image/jpeg',
@@ -344,46 +298,16 @@
       updateWhenZooming: false
     });
 
-    // Serie B: US Army Map Service flight, 1956-1957.
-    // Confirmed valid layer name via GetCapabilities.
     const serieB = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
       layers: 'AMS_1956-1957'
     });
 
-    // NOTE: "Serie A" (1945-46) has NO national WMS mosaic layer on this
-    // service — it only exists as individually browsable frames in IGN's
-    // Fototeca digital viewer (https://fototeca.cnig.es/), not as a
-    // stitched orthophoto. "Nacional" and "Interministerial" were both
-    // tried and confirmed (via the infoVuelos query layer and direct
-    // GetMap tests) to have large coverage gaps over Madrid.
-    //
-    // PNOA2004 alone is NOT nationwide, and that's the real reason it
-    // sometimes "stays all white" — that's not a loading failure, it's a
-    // genuine gap. Confirmed via this service's own GetCapabilities: the
-    // 2004 flight only covered Andalucía, Castilla y León, Cataluña,
-    // Comunitat Valenciana, Galicia, Murcia, País Vasco and La Rioja.
-    // 2005 added Cantabria, SW Castilla y León, Extremadura and Canarias.
-    // Madrid specifically wasn't flown until 2006.
-    //
-    // Several years' abstracts (2004, 2005, 2007, 2008, 2009) all mention
-    // "Galicia" as covered — but only at the region level, with no
-    // breakdown by province, so there's no way to tell from the metadata
-    // alone which year actually flew Lugo or eastern Ourense specifically.
-    // Rather than guess a single year, 2007 and 2008 are folded into the
-    // same fallback chain as extra candidates. Later names in the list
-    // draw on top, so 2004 still wins wherever it has data; 2005 and 2006
-    // are tried next as before, and now 2007/2008 sit underneath as
-    // further fallbacks for exactly this kind of leftover gap.
     const pnoa2004 = L.tileLayer.wms('https://www.ign.es/wms/pnoa-historico', {
       ...wmsCommonOptions,
       layers: 'PNOA2008,PNOA2007,PNOA2006,PNOA2005,PNOA2004'
     });
 
-    // Modern satellite/orthophoto imagery — IGN's own current PNOA
-    // "máxima actualidad" service. Unlike the historical layers, this is a
-    // modern INSPIRE-compliant WMS that properly supports Web Mercator
-    // (EPSG:3857), so it doesn't need the CRS/version workaround.
     const modern = L.tileLayer.wms('https://www.ign.es/wms-inspire/pnoa-ma', {
       layers: 'OI.OrthoimageCoverage',
       format: 'image/jpeg',
@@ -395,14 +319,6 @@
       updateWhenZooming: false
     });
 
-    // Current topographic map — IGN's "IGNBaseTodo", a cartographic
-    // (drawn, not photographic) style combining spot heights + contour
-    // lines, hillshaded relief, hydrography, roads, and place names in
-    // one layer. This is the "shows the mountains" map, as opposed to
-    // "Hoy" which is a straight aerial photo. Confirmed the layer name
-    // via this service's own GetCapabilities — same wms-inspire family as
-    // Catastro/Nombres/modern above, so it's INSPIRE-compliant and
-    // supports Web Mercator natively, no CRS workaround needed.
     const topo = L.tileLayer.wms('https://www.ign.es/wms-inspire/ign-base', {
       layers: 'IGNBaseTodo',
       format: 'image/png',
@@ -414,15 +330,6 @@
       updateWhenZooming: false
     });
 
-    // Catastro parcel boundaries — Spain's cadastral WMS, INSPIRE-compliant,
-    // so it natively supports Web Mercator (no CRS workaround needed like
-    // the historical IGN layers above). transparent:true + png so it draws
-    // as line overlays on top of whichever base layer is active, rather
-    // than replacing it. This is an ADDITIVE overlay, not a base layer —
-    // it's added/removed independently via toggleCatastro(), not through
-    // setLayer(). Note: this is a Spanish government server that has
-    // occasionally had SSL cert chain issues reported by GIS tools; if
-    // tiles fail to load, check the browser console for a tileerror.
     const catastro = L.tileLayer.wms('https://ovc.catastro.meh.es/cartografia/INSPIRE/spadgcwms.aspx', {
       layers: 'CP.CadastralParcel',
       format: 'image/png',
@@ -432,18 +339,6 @@
       attribution: '© Dirección General del Catastro'
     });
 
-    // Placenames overlay — IGN's Nomenclátor Geográfico Básico de España
-    // (NGBE), an INSPIRE "Geographic Names" WMS. Confirmed the exact layer
-    // name via GetCapabilities on this service (layer id is
-    // "GN.GeographicalNames"; the service itself is only reachable at the
-    // /wms-inspire/ngbe endpoint, not pnoa-historico or ign-base). Like
-    // Catastro, this is INSPIRE-compliant and supports Web Mercator
-    // natively, and transparent:true + png so labels draw over whichever
-    // base layer/Catastro combo is active rather than replacing it. This
-    // is also an ADDITIVE overlay wired through its own toggleNombres(),
-    // not setLayer(). Note: IGN documents a MaxScaleDenominator of
-    // 6,000,000 for this layer, i.e. it stops rendering labels if you
-    // zoom out very far — that's expected server behavior, not a bug.
     const nombres = L.tileLayer.wms('https://www.ign.es/wms-inspire/ngbe', {
       layers: 'GN.GeographicalNames',
       format: 'image/png',
@@ -453,16 +348,6 @@
       attribution: '© Instituto Geográfico Nacional (IGN) — NGBE'
     });
 
-    // Tile retry logic — the free government WMS servers this app relies
-    // on (especially "Hoy"/PNOA-MA and PNOA2004 under load) sometimes
-    // fail to deliver a tile in time, or the connection drops mid-
-    // transfer, leaving a solid black or white square sitting there
-    // instead of the real imagery. Leaflet doesn't retry a failed tile on
-    // its own — once a request errors, that square just stays broken
-    // until you leave and come back. This re-requests the exact same
-    // tile a few times with a short, increasing delay before giving up,
-    // using a cache-busting query param so the browser doesn't just hand
-    // back its own cached failure.
     function attachTileRetry(layer, maxRetries = 3) {
       const attemptsByTile = new WeakMap();
       layer.on('tileerror', (err) => {
@@ -483,21 +368,12 @@
 
     [fontan, minutas, serieB, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
-    // Store base layers in an object for easy switching
     const layers = { fontan, minutas, serieB, pnoa2004, modern, topo };
     let activeLayer = 'serieB';
 
-    // Default to Serie B (the most complete historical flight)
     serieB.addTo(map);
 
-    // Base Layer Toggle Function
     function setLayer(layerKey) {
-      // Tapping the tab that's already active doesn't switch anything —
-      // treat it as "reload this layer" instead. This matters because
-      // some stuck black/white tiles are the server responding with bad
-      // image data rather than a network error, which our retry logic
-      // above never sees (no tileerror fires for a "successful" bad
-      // response) — redraw() is the manual escape hatch for those.
       if (layerKey === activeLayer) {
         layers[layerKey].redraw();
         return;
@@ -514,10 +390,6 @@
 
       activeLayer = layerKey;
 
-      // Re-add the overlays on top if they're currently toggled on, since
-      // removing/re-adding the base layer can otherwise leave them
-      // sitting underneath the new base tiles. Nombres goes last so
-      // labels always sit above the Catastro parcel lines.
       if (catastroVisible) {
         catastro.bringToFront();
       }
@@ -526,7 +398,6 @@
       }
     }
 
-    // --- Catastro Overlay Toggle ---
     let catastroVisible = false;
     function toggleCatastro() {
       catastroVisible = !catastroVisible;
@@ -535,7 +406,6 @@
       if (catastroVisible) {
         catastro.addTo(map);
         catastro.bringToFront();
-        // Keep placenames above parcel lines if both are on.
         if (nombresVisible) nombres.bringToFront();
         btn.classList.add('is-on');
       } else {
@@ -544,7 +414,6 @@
       }
     }
 
-    // --- Nombres (placenames) Overlay Toggle ---
     let nombresVisible = false;
     function toggleNombres() {
       nombresVisible = !nombresVisible;
@@ -565,17 +434,25 @@
     let accuracyCircle = null;
     let autoCenter = true;
 
-    // Tracks whether the map's next view change was triggered by OUR code
-    // (auto-follow re-centering, or the recenter button) rather than by
-    // the person touching the map. We need this because Leaflet fires the
-    // same 'movestart' event for both cases, and we only want a REAL user
-    // gesture to cancel auto-follow.
     let programmaticMove = false;
 
-    // Custom brass pulsating dot for user location
+    // The heading cone is a separate absolutely-positioned element sitting
+    // BEHIND the dot (first in DOM order = lowest z), 0deg = pointing due
+    // north/"up". It starts hidden (opacity 0) because until a real
+    // compass or GPS-course reading comes in we don't know which way the
+    // person is actually facing — showing a cone pointed at a stale/
+    // default heading would be worse than showing no cone at all. Once a
+    // reading arrives, updateHeadingDisplay() fades it in and rotates it
+    // via a plain CSS transform, so we're not re-creating the divIcon
+    // (and losing the ping animation) on every orientation event.
     const gpsIcon = L.divIcon({
       className: 'relative flex items-center justify-center',
       html: `
+        <div id="gps-heading-cone" style="position:absolute; width:44px; height:44px; left:50%; top:50%; margin-left:-22px; margin-top:-22px; opacity:0; transition:opacity 250ms ease; transform-origin:50% 50%; pointer-events:none;">
+          <svg viewBox="0 0 44 44" width="44" height="44">
+            <path d="M22 1 L32 24 Q22 18 12 24 Z" fill="#D9A857" opacity="0.85"/>
+          </svg>
+        </div>
         <span class="absolute inline-flex h-6 w-6 rounded-full opacity-70" style="background:#C89B4A; animation: ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></span>
         <span class="relative inline-flex rounded-full h-4 w-4 border-2" style="background:#D9A857; border-color:#14110F;"></span>
       `,
@@ -583,7 +460,27 @@
       iconAnchor: [12, 12]
     });
 
-    // Handle Geolocation Updates
+    // Two independent heading sources feed this, and either can drive it:
+    // the device compass (accurate standing still, useless in a moving
+    // vehicle without a magnetometer fix) and GPS course-over-ground from
+    // coords.heading (accurate while moving, meaningless standing still —
+    // it's just noise). We don't try to arbitrate between them; whichever
+    // fires most recently wins, which in practice tracks which one is
+    // actually meaningful at that moment.
+    function normalizeHeading(h) {
+      return ((h % 360) + 360) % 360;
+    }
+
+    function updateHeadingDisplay(heading) {
+      if (heading == null || isNaN(heading) || !userMarker) return;
+      const el = userMarker.getElement();
+      if (!el) return;
+      const cone = el.querySelector('#gps-heading-cone');
+      if (!cone) return;
+      cone.style.opacity = '1';
+      cone.style.transform = `rotate(${normalizeHeading(heading)}deg)`;
+    }
+
     function onLocationFound(e) {
       const radius = e.accuracy;
 
@@ -604,6 +501,16 @@
         programmaticMove = true;
         map.setView(e.latlng, map.getZoom());
       }
+
+      // e.heading/e.speed come straight through from the browser's
+      // Geolocation API (Leaflet just forwards coords.heading/coords.speed
+      // on the locationfound event). heading is only meaningful once
+      // there's real motion — standing still it's null or garbage — so we
+      // gate on a small speed threshold (~0.5 m/s, filters out GPS jitter
+      // while stationary) rather than trusting any non-null value.
+      if (typeof e.heading === 'number' && !isNaN(e.heading) && e.speed > 0.5) {
+        updateHeadingDisplay(e.heading);
+      }
     }
 
     function onLocationError(e) {
@@ -618,14 +525,6 @@
       enableHighAccuracy: true
     });
 
-    // If the person manually moves the map — dragging, pinch-zooming,
-    // scroll/wheel zooming, double-tap zoom, anything — stop auto-
-    // centering. 'movestart' (unlike 'dragstart') fires for all of these,
-    // which is what was missing before: zooming out wasn't recognized as
-    // "the user touched the map", so the very next GPS fix would snap
-    // the view straight back. The programmaticMove flag lets us ignore
-    // the movestart that OUR OWN re-centering calls trigger, so this
-    // doesn't immediately cancel itself out.
     map.on('movestart', () => {
       if (programmaticMove) return;
       autoCenter = false;
@@ -636,7 +535,6 @@
       programmaticMove = false;
     });
 
-    // Manual Recenter Button Function
     function recenterMap() {
       autoCenter = true;
       document.getElementById('recenter-btn').classList.remove('is-idle');
@@ -645,12 +543,69 @@
         programmaticMove = true;
         map.setView(userMarker.getLatLng(), 17);
       }
-      // If there's no fix yet, no need to call locate() again — the
-      // watch() from setup is already running, and now that autoCenter
-      // is true again, the next 'locationfound' tick will center for us.
+
+      // Piggybacks the compass permission request on this tap because
+      // iOS 13+ only grants DeviceOrientationEvent access from inside a
+      // real user gesture handler — asking on page load silently does
+      // nothing there. The recenter button is the first tap most people
+      // make, and it's a natural fit ("orient me") even though its main
+      // job is centering the map.
+      enableCompass();
     }
 
-    // Register service worker for offline support + installability
+    // --- Compass heading (device orientation) ---
+    let compassEnabled = false;
+
+    function handleDeviceOrientation(e) {
+      let heading = null;
+
+      if (typeof e.webkitCompassHeading === 'number') {
+        // iOS Safari: gives true compass heading directly, 0 = north,
+        // clockwise — no conversion needed.
+        heading = e.webkitCompassHeading;
+      } else if (e.alpha != null) {
+        // Android / spec-compliant browsers: alpha is rotation around the
+        // z-axis increasing counter-clockwise from the device's initial
+        // orientation, so it has to be flipped (360 - alpha) to read as a
+        // clockwise-from-north compass heading. Using
+        // 'deviceorientationabsolute' (registered below when available)
+        // means alpha is anchored to true/magnetic north rather than
+        // wherever the page happened to load facing.
+        heading = 360 - e.alpha;
+      }
+
+      if (heading != null) {
+        updateHeadingDisplay(heading);
+      }
+    }
+
+    function enableCompass() {
+      if (compassEnabled) return;
+
+      const attach = () => {
+        compassEnabled = true;
+        if ('ondeviceorientationabsolute' in window) {
+          window.addEventListener('deviceorientationabsolute', handleDeviceOrientation);
+        } else {
+          window.addEventListener('deviceorientation', handleDeviceOrientation);
+        }
+      };
+
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // iOS 13+ path: must run inside a user-gesture call stack (see
+        // recenterMap above) or the promise silently resolves to 'denied'.
+        DeviceOrientationEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') attach();
+          })
+          .catch(err => console.error('Compass permission error:', err));
+      } else {
+        // Android and browsers without the permission gate: no prompt
+        // needed, just attach.
+        attach();
+      }
+    }
+
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js');

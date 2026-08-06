@@ -437,29 +437,70 @@
 
     let programmaticMove = false;
 
-    // The heading cone is a separate absolutely-positioned element sitting
-    // BEHIND the dot (first in DOM order = lowest z), 0deg = pointing due
-    // north/"up". It starts hidden (opacity 0) because until a real
-    // compass or GPS-course reading comes in we don't know which way the
-    // person is actually facing — showing a cone pointed at a stale/
-    // default heading would be worse than showing no cone at all. Once a
-    // reading arrives, updateHeadingDisplay() fades it in and rotates it
-    // via a plain CSS transform, so we're not re-creating the divIcon
-    // (and losing the ping animation) on every orientation event.
     const gpsIcon = L.divIcon({
       className: 'relative flex items-center justify-center',
       html: `
-        <div id="gps-heading-cone" style="position:absolute; width:44px; height:44px; left:50%; top:50%; margin-left:-22px; margin-top:-22px; opacity:0; transition:opacity 250ms ease; transform-origin:50% 50%; pointer-events:none;">
-          <svg viewBox="0 0 44 44" width="44" height="44">
-            <path d="M22 1 L32 24 Q22 18 12 24 Z" fill="#D9A857" opacity="0.85"/>
-          </svg>
-        </div>
         <span class="absolute inline-flex h-6 w-6 rounded-full opacity-70" style="background:#C89B4A; animation: ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></span>
         <span class="relative inline-flex rounded-full h-4 w-4 border-2" style="background:#D9A857; border-color:#14110F;"></span>
       `,
       iconSize: [24, 24],
       iconAnchor: [12, 12]
     });
+
+    // --- Heading ray: a real 5-metre "stick" drawn in map coordinates,
+    // not a fixed-pixel icon graphic. Because it's a genuine L.Polyline
+    // placed at real lat/lng points, Leaflet reprojects it automatically
+    // on every zoom/pan just like any other map layer — it gets visibly
+    // longer in pixels as you zoom in and shorter as you zoom out,
+    // exactly like a real 5m stake in the ground would. No manual
+    // recalculation on zoom is needed for that part.
+    //
+    // The fade is faked (Leaflet vector layers don't support gradient
+    // strokes) by stacking several short segments end-to-end, each with
+    // progressively lower opacity and a touch less width toward the tip,
+    // rather than one single-opacity line.
+    const headingRayLayer = L.layerGroup().addTo(map);
+    let currentHeading = null;
+    let currentUserLatLng = null;
+
+    // Flat-earth approximation for destination point given a bearing and
+    // distance — accurate to a tiny fraction of a millimetre of error at
+    // 5 metres, so no need for full great-circle math here.
+    function destinationPoint(latlng, bearingDeg, distanceM) {
+      const bearingRad = bearingDeg * Math.PI / 180;
+      const latRad = latlng.lat * Math.PI / 180;
+      const dLat = (distanceM * Math.cos(bearingRad)) / 111320;
+      const dLng = (distanceM * Math.sin(bearingRad)) / (111320 * Math.cos(latRad));
+      return L.latLng(latlng.lat + dLat, latlng.lng + dLng);
+    }
+
+    function interpolateLatLng(a, b, t) {
+      return L.latLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t);
+    }
+
+    function renderHeadingRay() {
+      headingRayLayer.clearLayers();
+      if (currentHeading == null || !currentUserLatLng) return;
+
+      const RAY_LENGTH_M = 5;
+      const SEGMENTS = 10;
+      const tip = destinationPoint(currentUserLatLng, currentHeading, RAY_LENGTH_M);
+
+      for (let i = 0; i < SEGMENTS; i++) {
+        const t0 = i / SEGMENTS;
+        const t1 = (i + 1) / SEGMENTS;
+        const segStart = interpolateLatLng(currentUserLatLng, tip, t0);
+        const segEnd = interpolateLatLng(currentUserLatLng, tip, t1);
+        const fade = 1 - i / SEGMENTS; // 1 near the dot, ~0 near the tip
+        L.polyline([segStart, segEnd], {
+          color: '#D9A857',
+          weight: 5 * (0.4 + 0.6 * fade),
+          opacity: 0.7 * fade,
+          lineCap: 'round',
+          interactive: false
+        }).addTo(headingRayLayer);
+      }
+    }
 
     // Two independent heading sources feed this, and either can drive it:
     // the device compass (accurate standing still, useless in a moving
@@ -473,15 +514,11 @@
     }
 
     function updateHeadingDisplay(heading) {
-      if (heading == null || isNaN(heading) || !userMarker) return;
-      const el = userMarker.getElement();
-      if (!el) return;
-      const cone = el.querySelector('#gps-heading-cone');
-      if (!cone) return;
-      cone.style.opacity = '1';
-      cone.style.transform = `rotate(${normalizeHeading(heading)}deg)`;
+      if (heading == null || isNaN(heading)) return;
+      currentHeading = normalizeHeading(heading);
+      renderHeadingRay();
       const dbg = document.getElementById('heading-debug');
-      if (dbg) dbg.textContent = `rumbo: ${Math.round(normalizeHeading(heading))}°`;
+      if (dbg) dbg.textContent = `rumbo: ${Math.round(currentHeading)}°`;
     }
 
     function onLocationFound(e) {
@@ -499,6 +536,9 @@
         userMarker.setLatLng(e.latlng);
         accuracyCircle.setLatLng(e.latlng).setRadius(radius);
       }
+
+      currentUserLatLng = e.latlng;
+      renderHeadingRay();
 
       if (autoCenter) {
         programmaticMove = true;

@@ -203,6 +203,7 @@
   <!-- Top UI Overlay: small title + slim tab bar -->
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
     <p class="title-line">... Donde está el terreno de abuelo?</p>
+    <p id="heading-debug" style="font-family:'IBM Plex Mono',monospace; font-size:9px; color:#8C8272; margin:0 0 5px 2px;">brújula: sin iniciar</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
       <button onclick="setLayer('fontan')" id="btn-fontan" class="tab">
         <span class="tab-years">1834</span>
@@ -479,6 +480,8 @@
       if (!cone) return;
       cone.style.opacity = '1';
       cone.style.transform = `rotate(${normalizeHeading(heading)}deg)`;
+      const dbg = document.getElementById('heading-debug');
+      if (dbg) dbg.textContent = `rumbo: ${Math.round(normalizeHeading(heading))}°`;
     }
 
     function onLocationFound(e) {
@@ -510,6 +513,11 @@
       // while stationary) rather than trusting any non-null value.
       if (typeof e.heading === 'number' && !isNaN(e.heading) && e.speed > 0.5) {
         updateHeadingDisplay(e.heading);
+      } else {
+        const dbg = document.getElementById('heading-debug');
+        if (dbg && !compassEnabled) {
+          dbg.textContent = `GPS: heading=${e.heading} speed=${e.speed} (toca el botón de centrar para activar brújula)`;
+        }
       }
     }
 
@@ -581,27 +589,44 @@
 
     function enableCompass() {
       if (compassEnabled) return;
+      const dbg = document.getElementById('heading-debug');
 
       const attach = () => {
         compassEnabled = true;
+        if (dbg) dbg.textContent = 'brújula: activa, esperando lectura...';
         if ('ondeviceorientationabsolute' in window) {
           window.addEventListener('deviceorientationabsolute', handleDeviceOrientation);
         } else {
           window.addEventListener('deviceorientation', handleDeviceOrientation);
         }
+        // If no orientation event ever fires (common on desktops/laptops
+        // with no magnetometer, even though the API exists), let the
+        // person know instead of leaving "esperando lectura..." up
+        // forever with no explanation.
+        setTimeout(() => {
+          if (dbg && dbg.textContent === 'brújula: activa, esperando lectura...') {
+            dbg.textContent = 'brújula: sin datos del sensor (¿estás en un móvil?)';
+          }
+        }, 4000);
       };
 
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // iOS 13+ path: must run inside a user-gesture call stack (see
-        // recenterMap above) or the promise silently resolves to 'denied'.
+        if (dbg) dbg.textContent = 'brújula: pidiendo permiso...';
         DeviceOrientationEvent.requestPermission()
           .then(response => {
-            if (response === 'granted') attach();
+            if (response === 'granted') {
+              attach();
+            } else if (dbg) {
+              dbg.textContent = `brújula: permiso denegado (${response}) — revisa Ajustes > Safari > Movimiento y orientación`;
+            }
           })
-          .catch(err => console.error('Compass permission error:', err));
+          .catch(err => {
+            console.error('Compass permission error:', err);
+            if (dbg) dbg.textContent = `brújula: error de permiso — ${err.message}`;
+          });
+      } else if (typeof DeviceOrientationEvent === 'undefined') {
+        if (dbg) dbg.textContent = 'brújula: no soportada en este navegador';
       } else {
-        // Android and browsers without the permission gate: no prompt
-        // needed, just attach.
         attach();
       }
     }

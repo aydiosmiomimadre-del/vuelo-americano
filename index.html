@@ -610,6 +610,57 @@
       }
     }
 
+    // --- Manual two-finger rotate gesture (like Google Maps' twist) ---
+    // Reads raw screen-space touch coordinates, so the math doesn't
+    // care what the map's current bearing already is — the map just
+    // tracks however far your fingers have twisted since you put them
+    // down, 1:1. Runs alongside Leaflet's own pinch-zoom handling
+    // (which lives on the same element) rather than replacing it, so
+    // you can zoom and rotate in the same gesture.
+    let gestureActive = false;
+    let gestureStartAngle = 0;
+    let gestureStartBearing = 0;
+
+    function angleBetweenTouches(t0, t1) {
+      return Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * (180 / Math.PI);
+    }
+
+    const mapViewportEl = document.getElementById('map-viewport');
+
+    mapViewportEl.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        gestureActive = true;
+        gestureStartAngle = angleBetweenTouches(e.touches[0], e.touches[1]);
+        gestureStartBearing = mapBearing;
+
+        // Grabbing the map with two fingers is a manual override —
+        // drop out of compass-follow and GPS auto-center so nothing
+        // fights the gesture.
+        if (autoRotate) {
+          autoRotate = false;
+          document.getElementById('compass-btn').classList.remove('is-on');
+        }
+        if (autoCenter) {
+          autoCenter = false;
+          document.getElementById('recenter-btn').classList.add('is-idle');
+        }
+      }
+    }, { passive: true });
+
+    mapViewportEl.addEventListener('touchmove', (e) => {
+      if (gestureActive && e.touches.length === 2) {
+        const currentAngle = angleBetweenTouches(e.touches[0], e.touches[1]);
+        mapBearing = gestureStartBearing + (currentAngle - gestureStartAngle);
+        applyMapRotation(true); // instant — track the fingers with no lag
+      }
+    }, { passive: true });
+
+    function endRotateGesture(e) {
+      if (e.touches.length < 2) gestureActive = false;
+    }
+    mapViewportEl.addEventListener('touchend', endRotateGesture, { passive: true });
+    mapViewportEl.addEventListener('touchcancel', endRotateGesture, { passive: true });
+
     function updateHeadingDisplay(heading) {
       if (heading == null || isNaN(heading) || !userMarker) return;
       const el = userMarker.getElement();

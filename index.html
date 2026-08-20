@@ -650,7 +650,7 @@
     mapViewportEl.addEventListener('touchmove', (e) => {
       if (gestureActive && e.touches.length === 2) {
         const currentAngle = angleBetweenTouches(e.touches[0], e.touches[1]);
-        mapBearing = gestureStartBearing + (currentAngle - gestureStartAngle);
+        mapBearing = gestureStartBearing - (currentAngle - gestureStartAngle);
         applyMapRotation(true); // instant — track the fingers with no lag
       }
     }, { passive: true });
@@ -805,7 +805,7 @@
         // forever with no explanation.
         setTimeout(() => {
           if (dbg && dbg.textContent === 'brújula: activa, esperando lectura...') {
-            dbg.textContent = 'brújula: sin datos del sensor';
+            dbg.textContent = 'brújula: sin datos del sensor (¿estás en un móvil?)';
           }
         }, 4000);
       };

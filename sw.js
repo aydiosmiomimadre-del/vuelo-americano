@@ -1,62 +1,121 @@
-const CACHE_NAME = 'vuelos-gps-v1';
+// sw.js — offline support for "Vuelos Americanos GPS"
+//
+// Two caches:
+//  - SHELL_CACHE: the app itself (HTML/CSS/JS/fonts) so the app opens at all
+//    with no connection.
+//  - TILE_CACHE: map tiles from the WMS + ArcGIS "export" endpoints. This is
+//    the one the "Guardar zona sin conexión" feature in index.html fills by
+//    firing a fetch() for every tile in the chosen area/zoom range — this
+//    worker just needs to notice those requests and cache them, cache-first.
+//
+// Nothing here is Galicia-specific; any IGN/IDEG/Catastro host works.
 
-// App shell — cached immediately on install so the app itself works offline
-const APP_SHELL = [
+const SHELL_CACHE = 'vuelos-shell-v1';
+const TILE_CACHE = 'vuelos-tiles-v1';
+
+const TILE_HOSTS = [
+  'www.ign.es',
+  'ideg.xunta.gal',
+  'ovc.catastro.meh.es'
+];
+
+const SHELL_ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://cdn.tailwindcss.com'
 ];
 
-self.addEventListener('install', event => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      // Fetch each shell asset individually (not cache.addAll) so a single
+      // missing/blocked asset — e.g. manifest.json not deployed yet —
+      // doesn't abort the whole install.
+      await Promise.all(SHELL_ASSETS.map(async (asset) => {
+        try {
+          const req = new Request(asset, { mode: 'no-cors' });
+          const res = await fetch(req);
+          await cache.put(asset, res);
+        } catch (err) {
+          // Ignore — that asset just won't be pre-cached on install.
+        }
+      }));
+    })
   );
   self.skipWaiting();
 });
 
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+    caches.keys().then((names) => Promise.all(
+      names
+        .filter((n) => n !== SHELL_CACHE && n !== TILE_CACHE)
+        .map((n) => caches.delete(n))
+    )).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+function isTileRequest(url) {
+  return TILE_HOSTS.some((host) => url.hostname === host);
+}
 
-  // Map tiles from IGN's WMS endpoints — cache-first, so previously
-  // viewed map areas still render offline. Falls back to network for
-  // anything not yet cached.
-  if (url.hostname.includes('ign.es')) {
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch (err) {
+    return;
+  }
+
+  if (isTileRequest(url)) {
+    // Cache-first: a tile once saved never needs to be re-fetched (these
+    // historical flights don't change), and it's what lets the app work
+    // with zero signal.
     event.respondWith(
-      caches.open(CACHE_NAME).then(cache =>
-        cache.match(event.request).then(cached => {
-          if (cached) return cached;
-          return fetch(event.request).then(response => {
-            if (response.ok) cache.put(event.request, response.clone());
-            return response;
-          }).catch(() => cached); // offline and not cached: fail gracefully
-        })
-      )
+      caches.open(TILE_CACHE).then(async (cache) => {
+        const cached = await cache.match(req);
+        if (cached) return cached;
+        try {
+          const response = await fetch(req);
+          // Tile responses are opaque (no-cors, cross-origin) — that's
+          // fine, they still cache and render correctly as <img> sources.
+          cache.put(req, response.clone());
+          return response;
+        } catch (err) {
+          // Offline and not cached: let it fail, Leaflet just shows a
+          // blank tile there instead of crashing the app.
+          return Response.error();
+        }
+      })
     );
     return;
   }
 
-  // Everything else (app shell, fonts, leaflet lib): cache-first,
-  // network fallback, and cache whatever we fetch for next time.
+  // App shell / everything else: network-first so you always get the
+  // latest version when online, falling back to cache when offline.
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      return cached || fetch(event.request).then(response => {
-        if (response.ok) {
+    fetch(req)
+      .then((response) => {
+        if (response && response.status === 200) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          caches.open(SHELL_CACHE).then((cache) => cache.put(req, clone)).catch(() => {});
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(req))
   );
+});
+
+// Lets the page ask "how much tile data do we actually have cached?" and
+// "wipe it" without duplicating cache-key logic in index.html.
+self.addEventListener('message', (event) => {
+  if (event.data === 'CLEAR_TILE_CACHE') {
+    event.waitUntil(caches.delete(TILE_CACHE));
+  }
 });

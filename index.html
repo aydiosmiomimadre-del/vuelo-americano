@@ -784,11 +784,29 @@
         `≈ ${tasks.length.toLocaleString('es-ES')} imágenes · ~${approxMB} MB estimados`;
     }
 
+    // Count of tiles the service worker told us it failed to cache during
+    // the current download run (usually a storage-quota problem).
+    let tileCacheFailures = 0;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'TILE_CACHE_ERROR') {
+          tileCacheFailures++;
+        }
+      });
+    }
+
     function openOfflinePanel() {
       document.getElementById('offline-panel').classList.remove('hidden');
       document.getElementById('offline-panel').classList.add('flex');
       updateOfflineEstimate();
       refreshStorageUsage();
+      // Ask the browser not to quietly evict our tile cache under storage
+      // pressure, and (on the browsers that support it) grants a larger
+      // quota than the default. Safe no-op where unsupported.
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(() => {});
+      }
     }
 
     function closeOfflinePanel() {
@@ -805,6 +823,8 @@
       const progressBar = document.getElementById('offline-progress-bar');
       const progressLabel = document.getElementById('offline-progress-label');
       progressWrap.classList.remove('hidden');
+
+      tileCacheFailures = 0;
 
       const { tasks } = buildTileTaskList();
 
@@ -824,6 +844,26 @@
       const concurrency = 4;
       let cursor = 0;
 
+      async function primeTile(url) {
+        // Try a real CORS request first: if the server allows it, the
+        // response is NOT "opaque" and the service worker caches it at its
+        // real size. Several of these government WMS servers do send CORS
+        // headers, and every tile we can fetch this way instead of
+        // no-cors meaningfully stretches how much you can fit before
+        // hitting your device's storage quota (opaque cross-origin
+        // responses get padded well past their real size for privacy
+        // reasons). If CORS isn't supported, the request just fails
+        // outright and we fall back to the no-cors request that always
+        // works but caches less efficiently.
+        try {
+          await fetch(url, { mode: 'cors' });
+          return;
+        } catch (err) {
+          // no CORS support on this endpoint — fall through
+        }
+        await fetch(url, { mode: 'no-cors' });
+      }
+
       async function worker() {
         while (cursor < tasks.length) {
           const i = cursor++;
@@ -832,10 +872,7 @@
             const coords = L.point(x, y);
             coords.z = z;
             const url = layer.getTileUrl(coords);
-            // mode: 'no-cors' — these are cross-origin government servers
-            // with no CORS headers; we don't need to read the response
-            // ourselves, just get it to pass through sw.js so it caches it.
-            await fetch(url, { mode: 'no-cors' });
+            await primeTile(url);
           } catch (err) {
             // A single failed tile (offline gap, server hiccup) shouldn't
             // stop the rest of the download.
@@ -855,7 +892,16 @@
         layer.onRemove(map);
       }
 
-      progressLabel.textContent = `Listo — ${total.toLocaleString('es-ES')} imágenes guardadas para esta zona.`;
+      // Give the service worker a beat to finish posting any cache-failure
+      // messages that arrived right at the end of the run.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      if (tileCacheFailures > 0) {
+        progressLabel.textContent =
+          `${(total - tileCacheFailures).toLocaleString('es-ES')} guardadas, ${tileCacheFailures.toLocaleString('es-ES')} fallaron — probablemente sin espacio. Prueba una zona más pequeña o menos capas.`;
+      } else {
+        progressLabel.textContent = `Listo — ${total.toLocaleString('es-ES')} imágenes guardadas para esta zona.`;
+      }
       startBtn.style.opacity = '1';
       startBtn.style.pointerEvents = 'auto';
       refreshStorageUsage();
@@ -865,9 +911,15 @@
       const el = document.getElementById('offline-storage-used');
       if (navigator.storage && navigator.storage.estimate) {
         try {
-          const { usage } = await navigator.storage.estimate();
-          const mb = (usage / (1024 * 1024)).toFixed(1);
-          el.textContent = `~${mb} MB guardados en este dispositivo`;
+          const { usage, quota } = await navigator.storage.estimate();
+          const usedMb = (usage / (1024 * 1024)).toFixed(1);
+          if (quota) {
+            const quotaMb = (quota / (1024 * 1024)).toFixed(0);
+            const pct = Math.round((usage / quota) * 100);
+            el.textContent = `~${usedMb} MB de ~${quotaMb} MB disponibles (${pct}%)`;
+          } else {
+            el.textContent = `~${usedMb} MB guardados en este dispositivo`;
+          }
           return;
         } catch (err) {
           // fall through to generic message

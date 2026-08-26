@@ -214,6 +214,9 @@
       <button onclick="setLayer('serieB')" id="btn-serieB" class="tab is-active">
         <span class="tab-years">1956</span>
       </button>
+      <button onclick="setLayer('interminis73')" id="btn-interminis73" class="tab">
+        <span class="tab-years">1973</span>
+      </button>
       <button onclick="setLayer('interminis')" id="btn-interminis" class="tab">
         <span class="tab-years">1980</span>
       </button>
@@ -299,7 +302,7 @@
         const nw = L.Projection.SphericalMercator.project(this._map.unproject(nwPoint, coord.z));
         const se = L.Projection.SphericalMercator.project(this._map.unproject(sePoint, coord.z));
         const bbox = [nw.x, se.y, se.x, nw.y].join(',');
-        return 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1980_1986/MapServer/export'
+        return this.options.serviceUrl
           + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${tileSize.x},${tileSize.y}`
           + '&format=jpg&transparent=false&f=image';
       }
@@ -307,7 +310,14 @@
     const interminis = new InterministerialLayer('', {
       minZoom: 5,
       maxZoom: 19,
+      serviceUrl: 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1980_1986/MapServer/export',
       attribution: '© Xunta de Galicia (IDEG) — Voo Interministerial, 1980–1986'
+    });
+    const interminis73 = new InterministerialLayer('', {
+      minZoom: 5,
+      maxZoom: 19,
+      serviceUrl: 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1973_1986/MapServer/export',
+      attribution: '© Xunta de Galicia (IDEG) — Voo Interministerial, 1973–1986'
     });
 
     const minutas = L.tileLayer.wms('https://www.ign.es/wms/primera-edicion-mtn', {
@@ -389,9 +399,9 @@
       });
     }
 
-    [fontan, minutas, serieB, interminis, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
+    [fontan, minutas, serieB, interminis73, interminis, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
-    const layers = { fontan, minutas, serieB, interminis, pnoa2004, modern, topo };
+    const layers = { fontan, minutas, serieB, interminis73, interminis, pnoa2004, modern, topo };
     let activeLayer = 'serieB';
 
     serieB.addTo(map);

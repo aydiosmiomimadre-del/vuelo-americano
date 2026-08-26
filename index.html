@@ -253,6 +253,60 @@
     </svg>
   </button>
 
+  <!-- Offline download button, bottom-left so it doesn't collide with recenter -->
+  <button id="offline-btn" onclick="openOfflinePanel()" class="dial-btn is-idle absolute bottom-6 left-6 z-[1000] p-4 rounded-full">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+  </button>
+
+  <!-- Small "sin conexión" pill, only shown when the browser goes offline -->
+  <div id="offline-pill" class="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] hidden"
+       style="background: rgba(201,44,44,0.92); color: #F3E9D2; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.05em; text-transform:uppercase; padding:4px 10px; border-radius:3px; box-shadow:0 4px 12px rgba(0,0,0,0.4);">
+    Sin conexión — mostrando datos guardados
+  </div>
+
+  <!-- Offline download panel -->
+  <div id="offline-panel" class="absolute inset-0 z-[1100] hidden items-center justify-center p-4"
+       style="background: rgba(20,17,15,0.7);">
+    <div class="w-full max-w-sm" style="background: var(--panel); border: 1px solid var(--panel-line); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); font-family:'Inter',sans-serif; color: var(--parchment); padding: 16px;">
+      <p style="font-family:'Fraunces',serif; font-style:italic; font-size:15px; color: var(--brass-bright); margin:0 0 4px 0;">Guardar zona sin conexión</p>
+      <p id="offline-summary" style="font-size:11.5px; color: var(--stone); line-height:1.5; margin:0 0 12px 0;"></p>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <span style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--stone);">Alcance del zoom</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button onclick="adjustZoomPad(-1)" style="width:26px;height:26px;border-radius:3px;border:1px solid var(--panel-line);background:transparent;color:var(--parchment);font-size:14px;">−</button>
+          <span id="zoom-pad-label" style="font-size:11.5px; min-width: 90px; text-align:center;">actual ±1</span>
+          <button onclick="adjustZoomPad(1)" style="width:26px;height:26px;border-radius:3px;border:1px solid var(--panel-line);background:transparent;color:var(--parchment);font-size:14px;">+</button>
+        </div>
+      </div>
+
+      <p id="offline-tile-estimate" style="font-size:11px; color: var(--amber-bright); margin:0 0 14px 0;"></p>
+
+      <div id="offline-progress-wrap" class="hidden" style="margin-bottom:12px;">
+        <div style="height:6px; border-radius:3px; background: rgba(255,255,255,0.08); overflow:hidden;">
+          <div id="offline-progress-bar" style="height:100%; width:0%; background: var(--brass-bright); transition: width 150ms ease;"></div>
+        </div>
+        <p id="offline-progress-label" style="font-size:10.5px; color: var(--stone); margin:6px 0 0 0;"></p>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button id="offline-start-btn" onclick="startOfflineDownload()" class="tab is-active" style="flex:1; justify-content:center; padding:8px;">
+          <span class="tab-label">Descargar</span>
+        </button>
+        <button onclick="closeOfflinePanel()" class="tab" style="padding:8px 14px;">
+          <span class="tab-label">Cerrar</span>
+        </button>
+      </div>
+
+      <div style="border-top: 1px solid var(--panel-line); margin-top:14px; padding-top:10px; display:flex; align-items:center; justify-content:space-between;">
+        <span id="offline-storage-used" style="font-size:10px; color: var(--stone);">calculando espacio usado…</span>
+        <button onclick="clearOfflineCache()" style="font-size:10px; color: #D98B7A; background:none; border:none; text-decoration:underline; cursor:pointer;">Borrar guardado</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Initialize Map centered on Madrid (Puerta del Sol)
     const map = L.map('map', {
@@ -299,7 +353,7 @@
         const nw = L.Projection.SphericalMercator.project(this._map.unproject(nwPoint, coord.z));
         const se = L.Projection.SphericalMercator.project(this._map.unproject(sePoint, coord.z));
         const bbox = [nw.x, se.y, se.x, nw.y].join(',');
-        return 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1980_1986/MapServer/export'
+        return this.options.serviceUrl
           + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${tileSize.x},${tileSize.y}`
           + '&format=jpg&transparent=false&f=image';
       }
@@ -307,6 +361,7 @@
     const interminis = new InterministerialLayer('', {
       minZoom: 5,
       maxZoom: 19,
+      serviceUrl: 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1980_1986/MapServer/export',
       attribution: '© Xunta de Galicia (IDEG) — Voo Interministerial, 1980–1986'
     });
 
@@ -652,6 +707,196 @@
         attach();
       }
     }
+
+    // --- Offline area download ---
+    //
+    // None of the base layers are static tile pyramids — they're WMS layers
+    // and ArcGIS "export" endpoints that render an image per request. So
+    // "offline" here means: walk every tile coordinate in the visible area
+    // across a small zoom range, for every layer, and simply *request* each
+    // one. We don't do anything with the response ourselves — sw.js is
+    // watching those same URLs and caches them cache-first, so once this
+    // finishes, those exact tiles are on disk and Leaflet will get them
+    // from the cache next time it asks, online or off.
+    //
+    // getTileUrl() on both the custom TileLayers (Fontán, Interministerial)
+    // and Leaflet's built-in L.TileLayer.WMS need `this._map` (and for WMS,
+    // `this._crs`) to be set, which only happens once a layer has been
+    // onAdd()-ed to the map. Layers that aren't the currently active tab
+    // haven't been added, so we briefly onAdd() + hide (opacity 0) each one
+    // just long enough to read tile URLs from it, then onRemove() it again.
+    // This never touches what's visibly on screen.
+
+    const ALL_LAYERS = [
+      { key: 'fontan', label: '1834', layer: fontan },
+      { key: 'minutas', label: '1910', layer: minutas },
+      { key: 'serieB', label: '1956', layer: serieB },
+      { key: 'interminis', label: '1980', layer: interminis },
+      { key: 'pnoa2004', label: '2004', layer: pnoa2004 },
+      { key: 'modern', label: 'Hoy', layer: modern },
+      { key: 'topo', label: 'Topo', layer: topo },
+      { key: 'catastro', label: 'Catastro', layer: catastro },
+      { key: 'nombres', label: 'Nombres', layer: nombres }
+    ];
+
+    let zoomPad = 1; // "actual ±1" by default — a tight range around current zoom
+
+    function getTileRangeForZoom(bounds, z) {
+      const nw = map.project(bounds.getNorthWest(), z).divideBy(256).floor();
+      const se = map.project(bounds.getSouthEast(), z).divideBy(256).floor();
+      return { minX: nw.x, maxX: se.x, minY: nw.y, maxY: se.y };
+    }
+
+    function buildTileTaskList() {
+      const bounds = map.getBounds();
+      const centerZoom = Math.round(map.getZoom());
+      const minZoom = Math.max(5, centerZoom - zoomPad);
+      const maxZoom = Math.min(19, centerZoom + zoomPad);
+
+      const tasks = [];
+      for (let z = minZoom; z <= maxZoom; z++) {
+        const range = getTileRangeForZoom(bounds, z);
+        for (let x = range.minX; x <= range.maxX; x++) {
+          for (let y = range.minY; y <= range.maxY; y++) {
+            for (const entry of ALL_LAYERS) {
+              tasks.push({ layer: entry.layer, x, y, z });
+            }
+          }
+        }
+      }
+      return { tasks, minZoom, maxZoom };
+    }
+
+    function adjustZoomPad(delta) {
+      zoomPad = Math.max(0, Math.min(3, zoomPad + delta));
+      document.getElementById('zoom-pad-label').textContent = zoomPad === 0 ? 'solo actual' : `actual ±${zoomPad}`;
+      updateOfflineEstimate();
+    }
+
+    function updateOfflineEstimate() {
+      const { tasks, minZoom, maxZoom } = buildTileTaskList();
+      const zoomLevels = maxZoom - minZoom + 1;
+      document.getElementById('offline-summary').textContent =
+        `Descarga el área visible ahora mismo, en las ${ALL_LAYERS.length} capas, para ${zoomLevels} nivel${zoomLevels === 1 ? '' : 'es'} de zoom (${minZoom}–${maxZoom}).`;
+      const approxKB = tasks.length * 25; // rough JPEG/PNG tile estimate
+      const approxMB = (approxKB / 1024).toFixed(0);
+      document.getElementById('offline-tile-estimate').textContent =
+        `≈ ${tasks.length.toLocaleString('es-ES')} imágenes · ~${approxMB} MB estimados`;
+    }
+
+    function openOfflinePanel() {
+      document.getElementById('offline-panel').classList.remove('hidden');
+      document.getElementById('offline-panel').classList.add('flex');
+      updateOfflineEstimate();
+      refreshStorageUsage();
+    }
+
+    function closeOfflinePanel() {
+      document.getElementById('offline-panel').classList.add('hidden');
+      document.getElementById('offline-panel').classList.remove('flex');
+    }
+
+    async function startOfflineDownload() {
+      const startBtn = document.getElementById('offline-start-btn');
+      startBtn.style.opacity = '0.5';
+      startBtn.style.pointerEvents = 'none';
+
+      const progressWrap = document.getElementById('offline-progress-wrap');
+      const progressBar = document.getElementById('offline-progress-bar');
+      const progressLabel = document.getElementById('offline-progress-label');
+      progressWrap.classList.remove('hidden');
+
+      const { tasks } = buildTileTaskList();
+
+      // Temporarily onAdd() any layer that isn't already on the map so its
+      // getTileUrl() has what it needs — then hide it and remove it after.
+      const primedForDownload = [];
+      for (const entry of ALL_LAYERS) {
+        if (!map.hasLayer(entry.layer)) {
+          entry.layer.onAdd(map);
+          if (entry.layer.setOpacity) entry.layer.setOpacity(0);
+          primedForDownload.push(entry.layer);
+        }
+      }
+
+      let done = 0;
+      const total = tasks.length;
+      const concurrency = 4;
+      let cursor = 0;
+
+      async function worker() {
+        while (cursor < tasks.length) {
+          const i = cursor++;
+          const { layer, x, y, z } = tasks[i];
+          try {
+            const coords = L.point(x, y);
+            coords.z = z;
+            const url = layer.getTileUrl(coords);
+            // mode: 'no-cors' — these are cross-origin government servers
+            // with no CORS headers; we don't need to read the response
+            // ourselves, just get it to pass through sw.js so it caches it.
+            await fetch(url, { mode: 'no-cors' });
+          } catch (err) {
+            // A single failed tile (offline gap, server hiccup) shouldn't
+            // stop the rest of the download.
+          }
+          done++;
+          if (done % 3 === 0 || done === total) {
+            const pct = Math.round((done / total) * 100);
+            progressBar.style.width = pct + '%';
+            progressLabel.textContent = `${done.toLocaleString('es-ES')} / ${total.toLocaleString('es-ES')} imágenes (${pct}%)`;
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: concurrency }, worker));
+
+      for (const layer of primedForDownload) {
+        layer.onRemove(map);
+      }
+
+      progressLabel.textContent = `Listo — ${total.toLocaleString('es-ES')} imágenes guardadas para esta zona.`;
+      startBtn.style.opacity = '1';
+      startBtn.style.pointerEvents = 'auto';
+      refreshStorageUsage();
+    }
+
+    async function refreshStorageUsage() {
+      const el = document.getElementById('offline-storage-used');
+      if (navigator.storage && navigator.storage.estimate) {
+        try {
+          const { usage } = await navigator.storage.estimate();
+          const mb = (usage / (1024 * 1024)).toFixed(1);
+          el.textContent = `~${mb} MB guardados en este dispositivo`;
+          return;
+        } catch (err) {
+          // fall through to generic message
+        }
+      }
+      el.textContent = 'espacio guardado: no disponible en este navegador';
+    }
+
+    function clearOfflineCache() {
+      if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+        alert('No hay ningún dato guardado todavía (o la app se abrió sin conexión activa la primera vez).');
+        return;
+      }
+      navigator.serviceWorker.controller.postMessage('CLEAR_TILE_CACHE');
+      setTimeout(refreshStorageUsage, 500);
+    }
+
+    // --- Online/offline status pill ---
+    function updateOnlineStatus() {
+      const pill = document.getElementById('offline-pill');
+      if (navigator.onLine) {
+        pill.classList.add('hidden');
+      } else {
+        pill.classList.remove('hidden');
+      }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

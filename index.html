@@ -214,6 +214,9 @@
       <button onclick="setLayer('serieB')" id="btn-serieB" class="tab is-active">
         <span class="tab-years">1956</span>
       </button>
+      <button onclick="setLayer('interminis')" id="btn-interminis" class="tab">
+        <span class="tab-years">1980</span>
+      </button>
       <button onclick="setLayer('pnoa2004')" id="btn-pnoa2004" class="tab">
         <span class="tab-years">2004</span>
       </button>
@@ -286,6 +289,25 @@
       minZoom: 5,
       maxZoom: 18,
       attribution: '© Xunta de Galicia (IET) — Carta Xeométrica de Fontán, 1834'
+    });
+
+    const InterministerialLayer = L.TileLayer.extend({
+      getTileUrl: function (coord) {
+        const tileSize = this.getTileSize();
+        const nwPoint = coord.scaleBy(tileSize);
+        const sePoint = nwPoint.add(tileSize);
+        const nw = L.Projection.SphericalMercator.project(this._map.unproject(nwPoint, coord.z));
+        const se = L.Projection.SphericalMercator.project(this._map.unproject(sePoint, coord.z));
+        const bbox = [nw.x, se.y, se.x, nw.y].join(',');
+        return 'https://ideg.xunta.gal/servizos/rest/services/MapasBase/OrtofotoInterministerial_1980_1986/MapServer/export'
+          + `?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${tileSize.x},${tileSize.y}`
+          + '&format=jpg&transparent=false&f=image';
+      }
+    });
+    const interminis = new InterministerialLayer('', {
+      minZoom: 5,
+      maxZoom: 19,
+      attribution: '© Xunta de Galicia (IDEG) — Voo Interministerial, 1980–1986'
     });
 
     const minutas = L.tileLayer.wms('https://www.ign.es/wms/primera-edicion-mtn', {
@@ -367,9 +389,9 @@
       });
     }
 
-    [fontan, minutas, serieB, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
+    [fontan, minutas, serieB, interminis, pnoa2004, modern, topo, catastro, nombres].forEach(layer => attachTileRetry(layer));
 
-    const layers = { fontan, minutas, serieB, pnoa2004, modern, topo };
+    const layers = { fontan, minutas, serieB, interminis, pnoa2004, modern, topo };
     let activeLayer = 'serieB';
 
     serieB.addTo(map);

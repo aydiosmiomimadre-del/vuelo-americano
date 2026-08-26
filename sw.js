@@ -62,6 +62,13 @@ function isTileRequest(url) {
   return TILE_HOSTS.some((host) => url.hostname === host);
 }
 
+async function reportTileCacheFailure(url, err) {
+  const clientsList = await self.clients.matchAll({ includeUncontrolled: true });
+  clientsList.forEach((client) => {
+    client.postMessage({ type: 'TILE_CACHE_ERROR', url, message: err && err.message });
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -83,9 +90,17 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         try {
           const response = await fetch(req);
-          // Tile responses are opaque (no-cors, cross-origin) — that's
-          // fine, they still cache and render correctly as <img> sources.
-          cache.put(req, response.clone());
+          try {
+            // Awaited + caught on its own: if this fails (most commonly a
+            // QuotaExceededError from the device running out of storage —
+            // opaque cross-origin responses like these get padded well
+            // beyond their real size for privacy reasons, so quota fills
+            // up faster than you'd expect), we now actually notice, instead
+            // of it being a silently-dropped promise rejection.
+            await cache.put(req, response.clone());
+          } catch (cacheErr) {
+            reportTileCacheFailure(req.url, cacheErr);
+          }
           return response;
         } catch (err) {
           // Offline and not cached: let it fail, Leaflet just shows a

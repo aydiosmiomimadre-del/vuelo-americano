@@ -226,6 +226,7 @@
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
     <p class="title-line">... ¿Donde está el terreno de abuelo?</p>
     <p id="heading-debug" style="font-family:'IBM Plex Mono',monospace; font-size:9px; color:#8C8272; margin:0 0 5px 2px;">brújula: sin iniciar</p>
+    <p id="longpress-debug" style="font-family:'IBM Plex Mono',monospace; font-size:9px; color:#8C8272; margin:0 0 5px 2px;">pulsación larga: en espera</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
       <button onclick="setLayer('fontan')" id="btn-fontan" class="tab">
         <span class="tab-years">1834</span>
@@ -725,50 +726,65 @@
     // map without moving it for LONG_PRESS_MS, and it drops a pin at that
     // spot.
     //
-    // IMPORTANT: this listens to raw 'touchstart'/'touchmove'/'touchend' on
-    // the map container directly, NOT Leaflet's map.on('mousedown', ...).
-    // Mobile browsers only synthesize mousedown/click events from a touch
-    // AFTER you lift your finger (legacy click-compatibility shim) — they
-    // don't fire during the hold itself — so a timer started from
-    // map.on('mousedown', ...) never actually starts while you're pressing.
-    // Raw touch events are the only ones that fire the moment a finger
-    // makes contact, which is what a "hold and wait" gesture needs.
-    // Mouse listeners are kept alongside for desktop testing.
+    // Uses Pointer Events (pointerdown/pointermove/pointerup/pointercancel)
+    // rather than Leaflet's map.on('mousedown', ...) or separate touch/mouse
+    // listeners. Pointer Events are the modern unified API — one event type
+    // covers finger, mouse, and stylus — and, critically, they fire the
+    // instant contact is made, unlike synthetic mouse events on mobile
+    // (which browsers only emit AFTER a touch ends, for legacy click
+    // compatibility, so they can't be used to time a hold).
     const LONG_PRESS_MS = 550;
-    const LONG_PRESS_MOVE_TOLERANCE = 12; // px of finger drift that still counts as "held still"
+    const LONG_PRESS_MOVE_TOLERANCE = 12; // px of drift that still counts as "held still"
     let longPressTimer = null;
     let longPressStartPoint = null;
+    let longPressPointerId = null;
     const mapContainer = map.getContainer();
 
-    function pointFromEvent(e) {
+    function containerPointFromEvent(e) {
       const rect = mapContainer.getBoundingClientRect();
-      const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
-      return L.point(src.clientX - rect.left, src.clientY - rect.top);
+      return L.point(e.clientX - rect.left, e.clientY - rect.top);
     }
 
-    function startLongPress(e) {
-      // Ignore presses that land on an existing marker, popup, or button
-      // sitting on top of the map — those have their own tap behavior.
+    function onPointerDown(e) {
+      // Only track one pointer at a time (ignore a second finger touching
+      // down mid-gesture), and ignore presses on existing markers/popups/
+      // buttons sitting on top of the map — those have their own tap
+      // behavior.
+      if (longPressPointerId !== null) return;
       const target = e.target;
       if (target && target.closest && target.closest('.leaflet-popup, .leaflet-marker-icon, .leaflet-control, button, a')) {
         return;
       }
-      clearLongPressTimer();
-      const point = pointFromEvent(e);
+      longPressPointerId = e.pointerId;
+      const point = containerPointFromEvent(e);
       longPressStartPoint = point;
+      setLongPressDebug(`pulsación detectada (tipo: ${e.pointerType}), esperando ${LONG_PRESS_MS}ms...`);
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
         const latlng = map.containerPointToLatLng(point);
+        setLongPressDebug('¡activada! abriendo panel...');
         triggerLongPress(latlng);
       }, LONG_PRESS_MS);
     }
 
-    function handlePossibleMove(e) {
-      if (!longPressTimer || !longPressStartPoint) return;
-      const point = pointFromEvent(e);
+    function setLongPressDebug(text) {
+      const dbg = document.getElementById('longpress-debug');
+      if (dbg) dbg.textContent = `pulsación larga: ${text}`;
+    }
+
+    function onPointerMove(e) {
+      if (e.pointerId !== longPressPointerId || !longPressTimer) return;
+      const point = containerPointFromEvent(e);
       if (point.distanceTo(longPressStartPoint) > LONG_PRESS_MOVE_TOLERANCE) {
+        setLongPressDebug('cancelada (se movió el dedo)');
         clearLongPressTimer();
       }
+    }
+
+    function onPointerUp(e) {
+      if (e.pointerId !== longPressPointerId) return;
+      if (longPressTimer) setLongPressDebug('cancelada (soltaste antes de tiempo)');
+      clearLongPressTimer();
     }
 
     function clearLongPressTimer() {
@@ -777,6 +793,7 @@
         longPressTimer = null;
       }
       longPressStartPoint = null;
+      longPressPointerId = null;
     }
 
     function triggerLongPress(latlng) {
@@ -794,15 +811,11 @@
       setTimeout(() => input.focus(), 50);
     }
 
-    mapContainer.addEventListener('touchstart', startLongPress, { passive: true });
-    mapContainer.addEventListener('touchmove', handlePossibleMove, { passive: true });
-    mapContainer.addEventListener('touchend', clearLongPressTimer, { passive: true });
-    mapContainer.addEventListener('touchcancel', clearLongPressTimer, { passive: true });
-
-    mapContainer.addEventListener('mousedown', startLongPress);
-    mapContainer.addEventListener('mousemove', handlePossibleMove);
-    mapContainer.addEventListener('mouseup', clearLongPressTimer);
-    mapContainer.addEventListener('mouseleave', clearLongPressTimer);
+    mapContainer.addEventListener('pointerdown', onPointerDown);
+    mapContainer.addEventListener('pointermove', onPointerMove);
+    mapContainer.addEventListener('pointerup', onPointerUp);
+    mapContainer.addEventListener('pointercancel', onPointerUp);
+    mapContainer.addEventListener('pointerleave', onPointerUp);
 
     // Extra safety net: if Leaflet itself decides a real pan or zoom has
     // started, cancel too (belt-and-suspenders alongside the move-distance

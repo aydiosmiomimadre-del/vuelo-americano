@@ -193,6 +193,28 @@
 
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Keep the map from triggering text-selection / native long-press
+       callouts (iOS "share/save" menu, Android text selection) so our own
+       long-press-to-drop-a-pin gesture doesn't fight with the browser. */
+    #map {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    /* Dark-theme the Leaflet popups so saved-marker popups match the rest
+       of the UI instead of Leaflet's default white card. */
+    .leaflet-popup-content-wrapper {
+      background: var(--panel);
+      color: var(--parchment);
+      border: 1px solid var(--panel-line);
+      border-radius: 4px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .leaflet-popup-tip { background: var(--panel); }
+    .leaflet-popup-content { margin: 10px 12px; }
+    .leaflet-popup-close-button { color: var(--stone) !important; }
   </style>
 </head>
 <body class="overflow-hidden">
@@ -264,6 +286,45 @@
   <div id="offline-pill" class="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] hidden"
        style="background: rgba(201,44,44,0.92); color: #F3E9D2; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.05em; text-transform:uppercase; padding:4px 10px; border-radius:3px; box-shadow:0 4px 12px rgba(0,0,0,0.4);">
     Sin conexión — mostrando datos guardados
+  </div>
+
+  <!-- Saved-markers list button, stacked above the offline button -->
+  <button id="markers-btn" onclick="openMarkersPanel()" class="dial-btn is-idle absolute bottom-24 left-6 z-[1000] p-4 rounded-full">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+    </svg>
+  </button>
+
+  <!-- Naming prompt shown right after a long-press drops a pin -->
+  <div id="marker-name-panel" class="absolute inset-0 z-[1200] hidden items-center justify-center p-4"
+       style="background: rgba(20,17,15,0.7);">
+    <div class="w-full max-w-sm" style="background: var(--panel); border: 1px solid var(--panel-line); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); font-family:'Inter',sans-serif; color: var(--parchment); padding: 16px;">
+      <p style="font-family:'Fraunces',serif; font-style:italic; font-size:15px; color: var(--brass-bright); margin:0 0 4px 0;">Nuevo marcador</p>
+      <p style="font-size:11.5px; color: var(--stone); line-height:1.5; margin:0 0 12px 0;">Dale un nombre a este punto para guardarlo.</p>
+      <input id="marker-name-input" type="text" maxlength="60" placeholder="ej. Terreno de abuelo"
+             style="width:100%; box-sizing:border-box; background: rgba(0,0,0,0.25); border:1px solid var(--panel-line); border-radius:3px; color:var(--parchment); font-family:'Inter',sans-serif; font-size:13px; padding:9px 10px; margin-bottom:14px; outline:none;">
+      <div style="display:flex; gap:8px;">
+        <button onclick="confirmSaveMarker()" class="tab is-active" style="flex:1; justify-content:center; padding:8px;">
+          <span class="tab-label">Guardar</span>
+        </button>
+        <button onclick="cancelSaveMarker()" class="tab" style="padding:8px 14px;">
+          <span class="tab-label">Cancelar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saved-markers list panel -->
+  <div id="markers-panel" class="absolute inset-0 z-[1100] hidden items-center justify-center p-4"
+       style="background: rgba(20,17,15,0.7);">
+    <div class="w-full max-w-sm" style="background: var(--panel); border: 1px solid var(--panel-line); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); font-family:'Inter',sans-serif; color: var(--parchment); padding: 16px;">
+      <p style="font-family:'Fraunces',serif; font-style:italic; font-size:15px; color: var(--brass-bright); margin:0 0 4px 0;">Marcadores guardados</p>
+      <p style="font-size:11.5px; color: var(--stone); line-height:1.5; margin:0 0 10px 0;">Mantén pulsado el mapa para añadir uno nuevo.</p>
+      <div id="markers-list" class="no-scrollbar" style="max-height: 300px; overflow-y:auto; margin-bottom: 14px;"></div>
+      <button onclick="closeMarkersPanel()" class="tab" style="width:100%; justify-content:center; padding:8px;">
+        <span class="tab-label">Cerrar</span>
+      </button>
+    </div>
   </div>
 
   <!-- Offline download panel -->
@@ -506,6 +567,217 @@
         btn.classList.remove('is-on');
       }
     }
+
+    // --- Saved markers (long-press to drop a pin, name it, keep it) ---
+    //
+    // Stored in localStorage — this is a real deployed PWA (manifest,
+    // service worker, home-screen icon), not a preview iframe, so
+    // localStorage persists exactly the way you'd want across app
+    // launches on the same device.
+    const SAVED_MARKERS_KEY = 'vuelosgps_saved_markers';
+    let savedMarkers = [];
+    let markerRefs = []; // Leaflet marker instances, same order/index as savedMarkers
+    const markersLayerGroup = L.layerGroup().addTo(map);
+
+    let pendingMarkerLatLng = null;
+    let ghostMarker = null;
+
+    const pinIcon = L.divIcon({
+      className: '',
+      html: `
+        <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+          <path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 25 15 25s15-14.5 15-25C30 6.7 23.3 0 15 0z" fill="#C9962B" stroke="#14110F" stroke-width="1.5"/>
+          <circle cx="15" cy="15" r="5.5" fill="#14110F"/>
+        </svg>
+      `,
+      iconSize: [30, 40],
+      iconAnchor: [15, 40],
+      popupAnchor: [0, -34]
+    });
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function loadSavedMarkers() {
+      try {
+        const raw = localStorage.getItem(SAVED_MARKERS_KEY);
+        savedMarkers = raw ? JSON.parse(raw) : [];
+      } catch (err) {
+        console.error('No se pudieron cargar los marcadores guardados:', err);
+        savedMarkers = [];
+      }
+      renderSavedMarkers();
+    }
+
+    function persistSavedMarkers() {
+      try {
+        localStorage.setItem(SAVED_MARKERS_KEY, JSON.stringify(savedMarkers));
+      } catch (err) {
+        console.error('No se pudieron guardar los marcadores:', err);
+        alert('No se pudo guardar el marcador (¿almacenamiento lleno?).');
+      }
+    }
+
+    function buildPopupHtml(m, idx) {
+      const safeName = escapeHtml(m.name);
+      return `<div style="min-width:140px;">
+        <p style="font-family:'Fraunces',serif; font-style:italic; font-size:14px; margin:0 0 6px 0; color:var(--brass-bright);">${safeName}</p>
+        <button onclick="deleteSavedMarker(${idx})" style="font-size:11px; color:#D98B7A; background:none; border:none; text-decoration:underline; cursor:pointer; padding:0;">Eliminar</button>
+      </div>`;
+    }
+
+    function renderSavedMarkers() {
+      markersLayerGroup.clearLayers();
+      markerRefs = savedMarkers.map((m, idx) => {
+        const marker = L.marker([m.lat, m.lng], { icon: pinIcon });
+        marker.bindPopup(buildPopupHtml(m, idx));
+        marker.addTo(markersLayerGroup);
+        return marker;
+      });
+      renderMarkersListPanel();
+    }
+
+    function renderMarkersListPanel() {
+      const list = document.getElementById('markers-list');
+      if (!list) return;
+      if (savedMarkers.length === 0) {
+        list.innerHTML = '<p style="font-size:11.5px; color:var(--stone); padding:6px 0;">Aún no hay marcadores guardados.</p>';
+        return;
+      }
+      list.innerHTML = savedMarkers.map((m, idx) => `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 0; border-bottom:1px solid var(--panel-line);">
+          <button onclick="flyToSavedMarker(${idx})" style="flex:1; text-align:left; background:none; border:none; color:var(--parchment); font-family:'Inter',sans-serif; font-size:12.5px; cursor:pointer; padding:0;">${escapeHtml(m.name)}</button>
+          <button onclick="deleteSavedMarker(${idx})" style="font-size:10.5px; color:#D98B7A; background:none; border:none; text-decoration:underline; cursor:pointer; padding:0; white-space:nowrap;">Eliminar</button>
+        </div>
+      `).join('');
+    }
+
+    function deleteSavedMarker(idx) {
+      if (!confirm('¿Eliminar este marcador?')) return;
+      savedMarkers.splice(idx, 1);
+      persistSavedMarkers();
+      renderSavedMarkers();
+    }
+
+    function flyToSavedMarker(idx) {
+      const m = savedMarkers[idx];
+      if (!m) return;
+      closeMarkersPanel();
+      autoCenter = false;
+      document.getElementById('recenter-btn').classList.add('is-idle');
+      programmaticMove = true;
+      map.setView([m.lat, m.lng], 17);
+      const marker = markerRefs[idx];
+      if (marker) setTimeout(() => marker.openPopup(), 350);
+    }
+
+    function openMarkersPanel() {
+      renderMarkersListPanel();
+      document.getElementById('markers-panel').classList.remove('hidden');
+      document.getElementById('markers-panel').classList.add('flex');
+    }
+
+    function closeMarkersPanel() {
+      document.getElementById('markers-panel').classList.add('hidden');
+      document.getElementById('markers-panel').classList.remove('flex');
+    }
+
+    function cancelSaveMarker() {
+      if (ghostMarker) {
+        map.removeLayer(ghostMarker);
+        ghostMarker = null;
+      }
+      pendingMarkerLatLng = null;
+      document.getElementById('marker-name-panel').classList.add('hidden');
+      document.getElementById('marker-name-panel').classList.remove('flex');
+    }
+
+    function confirmSaveMarker() {
+      const input = document.getElementById('marker-name-input');
+      const name = input.value.trim();
+      if (!name) {
+        input.focus();
+        return;
+      }
+      if (!pendingMarkerLatLng) {
+        cancelSaveMarker();
+        return;
+      }
+      savedMarkers.push({
+        name,
+        lat: pendingMarkerLatLng.lat,
+        lng: pendingMarkerLatLng.lng,
+        createdAt: Date.now()
+      });
+      persistSavedMarkers();
+      renderSavedMarkers();
+      cancelSaveMarker();
+    }
+
+    document.getElementById('marker-name-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') confirmSaveMarker();
+    });
+
+    // --- Long-press gesture: hold a finger (or mouse button) down on the
+    // map without moving it for LONG_PRESS_MS, and it drops a pin at that
+    // spot. Leaflet normalizes touch and mouse into the same 'mousedown'/
+    // 'mouseup' events on the map, so this one handler covers both. Any
+    // real movement cancels it via the 'dragstart' listener below, so it
+    // never fires in the middle of a pan.
+    const LONG_PRESS_MS = 550;
+    let longPressTimer = null;
+
+    function startLongPress(e) {
+      // Ignore presses that land on an existing marker, popup, or button
+      // sitting on top of the map — those have their own tap behavior.
+      const target = e.originalEvent && e.originalEvent.target;
+      if (target && target.closest && target.closest('.leaflet-popup, .leaflet-marker-icon, .leaflet-control, button, a')) {
+        return;
+      }
+      clearLongPressTimer();
+      const latlng = e.latlng;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        triggerLongPress(latlng);
+      }, LONG_PRESS_MS);
+    }
+
+    function clearLongPressTimer() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+
+    function triggerLongPress(latlng) {
+      if (!latlng) return;
+      if (navigator.vibrate) {
+        try { navigator.vibrate(35); } catch (err) {}
+      }
+      pendingMarkerLatLng = latlng;
+      if (ghostMarker) map.removeLayer(ghostMarker);
+      ghostMarker = L.marker(latlng, { icon: pinIcon, opacity: 0.75 }).addTo(map);
+      const input = document.getElementById('marker-name-input');
+      input.value = '';
+      document.getElementById('marker-name-panel').classList.remove('hidden');
+      document.getElementById('marker-name-panel').classList.add('flex');
+      setTimeout(() => input.focus(), 50);
+    }
+
+    map.on('mousedown', startLongPress);
+    map.on('mouseup', clearLongPressTimer);
+    map.on('dragstart', clearLongPressTimer);
+    map.on('zoomstart', clearLongPressTimer);
+
+    // Stop the native long-press context menu (iOS "save image" / Android
+    // text-select callout) from popping up over the map and fighting with
+    // the gesture above.
+    document.getElementById('map').addEventListener('contextmenu', (e) => e.preventDefault());
+
+    loadSavedMarkers();
 
     // --- Geolocation Tracking ---
     let userMarker = null;

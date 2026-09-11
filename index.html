@@ -644,7 +644,7 @@
       const safeName = escapeHtml(m.name);
       return `<div style="min-width:140px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <p style="font-family:'Fraunces',serif; font-style:italic; font-size:14px; margin:0; color:var(--brass-bright);">${safeName}</p>
-        <button onclick="deleteSavedMarker(${idx})" title="Eliminar" class="icon-btn-trash">${trashIconSvg(15)}</button>
+        <button onclick="deleteSavedMarker(${idx})" title="Eliminar" class="icon-btn-trash" style="margin-right: 16px;">${trashIconSvg(15)}</button>
       </div>`;
     }
 

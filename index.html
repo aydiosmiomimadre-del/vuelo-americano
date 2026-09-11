@@ -723,26 +723,52 @@
 
     // --- Long-press gesture: hold a finger (or mouse button) down on the
     // map without moving it for LONG_PRESS_MS, and it drops a pin at that
-    // spot. Leaflet normalizes touch and mouse into the same 'mousedown'/
-    // 'mouseup' events on the map, so this one handler covers both. Any
-    // real movement cancels it via the 'dragstart' listener below, so it
-    // never fires in the middle of a pan.
+    // spot.
+    //
+    // IMPORTANT: this listens to raw 'touchstart'/'touchmove'/'touchend' on
+    // the map container directly, NOT Leaflet's map.on('mousedown', ...).
+    // Mobile browsers only synthesize mousedown/click events from a touch
+    // AFTER you lift your finger (legacy click-compatibility shim) — they
+    // don't fire during the hold itself — so a timer started from
+    // map.on('mousedown', ...) never actually starts while you're pressing.
+    // Raw touch events are the only ones that fire the moment a finger
+    // makes contact, which is what a "hold and wait" gesture needs.
+    // Mouse listeners are kept alongside for desktop testing.
     const LONG_PRESS_MS = 550;
+    const LONG_PRESS_MOVE_TOLERANCE = 12; // px of finger drift that still counts as "held still"
     let longPressTimer = null;
+    let longPressStartPoint = null;
+    const mapContainer = map.getContainer();
+
+    function pointFromEvent(e) {
+      const rect = mapContainer.getBoundingClientRect();
+      const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+      return L.point(src.clientX - rect.left, src.clientY - rect.top);
+    }
 
     function startLongPress(e) {
       // Ignore presses that land on an existing marker, popup, or button
       // sitting on top of the map — those have their own tap behavior.
-      const target = e.originalEvent && e.originalEvent.target;
+      const target = e.target;
       if (target && target.closest && target.closest('.leaflet-popup, .leaflet-marker-icon, .leaflet-control, button, a')) {
         return;
       }
       clearLongPressTimer();
-      const latlng = e.latlng;
+      const point = pointFromEvent(e);
+      longPressStartPoint = point;
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
+        const latlng = map.containerPointToLatLng(point);
         triggerLongPress(latlng);
       }, LONG_PRESS_MS);
+    }
+
+    function handlePossibleMove(e) {
+      if (!longPressTimer || !longPressStartPoint) return;
+      const point = pointFromEvent(e);
+      if (point.distanceTo(longPressStartPoint) > LONG_PRESS_MOVE_TOLERANCE) {
+        clearLongPressTimer();
+      }
     }
 
     function clearLongPressTimer() {
@@ -750,6 +776,7 @@
         clearTimeout(longPressTimer);
         longPressTimer = null;
       }
+      longPressStartPoint = null;
     }
 
     function triggerLongPress(latlng) {
@@ -767,15 +794,26 @@
       setTimeout(() => input.focus(), 50);
     }
 
-    map.on('mousedown', startLongPress);
-    map.on('mouseup', clearLongPressTimer);
+    mapContainer.addEventListener('touchstart', startLongPress, { passive: true });
+    mapContainer.addEventListener('touchmove', handlePossibleMove, { passive: true });
+    mapContainer.addEventListener('touchend', clearLongPressTimer, { passive: true });
+    mapContainer.addEventListener('touchcancel', clearLongPressTimer, { passive: true });
+
+    mapContainer.addEventListener('mousedown', startLongPress);
+    mapContainer.addEventListener('mousemove', handlePossibleMove);
+    mapContainer.addEventListener('mouseup', clearLongPressTimer);
+    mapContainer.addEventListener('mouseleave', clearLongPressTimer);
+
+    // Extra safety net: if Leaflet itself decides a real pan or zoom has
+    // started, cancel too (belt-and-suspenders alongside the move-distance
+    // check above).
     map.on('dragstart', clearLongPressTimer);
     map.on('zoomstart', clearLongPressTimer);
 
     // Stop the native long-press context menu (iOS "save image" / Android
     // text-select callout) from popping up over the map and fighting with
     // the gesture above.
-    document.getElementById('map').addEventListener('contextmenu', (e) => e.preventDefault());
+    mapContainer.addEventListener('contextmenu', (e) => e.preventDefault());
 
     loadSavedMarkers();
 

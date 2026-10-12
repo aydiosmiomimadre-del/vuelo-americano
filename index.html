@@ -239,8 +239,6 @@
   <!-- Top UI Overlay: small title + slim tab bar -->
   <div class="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
     <p class="title-line">... ¿Donde está el terreno de abuelo?</p>
-    <p id="heading-debug" style="font-family:'IBM Plex Mono',monospace; font-size:9px; color:#8C8272; margin:0 0 5px 2px;">brújula: sin iniciar</p>
-    <p id="longpress-debug" style="font-family:'IBM Plex Mono',monospace; font-size:9px; color:#8C8272; margin:0 0 5px 2px;">pulsación larga: en espera</p>
     <div class="tabbar tabbar-enter pointer-events-auto inline-flex gap-1.5 overflow-x-auto no-scrollbar max-w-full">
       <button onclick="setLayer('fontan')" id="btn-fontan" class="tab">
         <span class="tab-years">1834</span>
@@ -619,14 +617,14 @@
     const pinIcon = L.divIcon({
       className: '',
       html: `
-        <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
-          <path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 25 15 25s15-14.5 15-25C30 6.7 23.3 0 15 0z" fill="#C9962B" stroke="#14110F" stroke-width="1.5"/>
-          <circle cx="15" cy="15" r="5.5" fill="#14110F"/>
+        <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg" style="display:block; overflow:visible;" shape-rendering="geometricPrecision">
+          <path d="M17 2C9.3 2 3 8.3 3 16c0 9.6 14 25.5 14 25.5S31 25.6 31 16C31 8.3 24.7 2 17 2z" fill="#C9962B" stroke="#14110F" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle cx="17" cy="16" r="5.5" fill="#14110F"/>
         </svg>
       `,
-      iconSize: [30, 40],
-      iconAnchor: [15, 40],
-      popupAnchor: [0, -34]
+      iconSize: [34, 44],
+      iconAnchor: [17, 41.5],
+      popupAnchor: [0, -38]
     });
 
     function escapeHtml(str) {

@@ -324,6 +324,21 @@
           <span class="tab-label">Cancelar</span>
         </button>
       </div>
+
+      <!-- Coordinates row: read-only text box + copy button -->
+      <div style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+        <input id="marker-coords-input" type="text" readonly
+               style="flex:1; min-width:0; box-sizing:border-box; background: rgba(0,0,0,0.25); border:1px solid var(--panel-line); border-radius:3px; color:var(--stone); font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:8px 10px; outline:none;">
+        <button id="copy-coords-btn" onclick="copyMarkerCoords()" title="Copiar coordenadas" class="tab"
+                style="padding:7px 9px; align-items:center; flex-shrink:0;">
+          <span id="copy-coords-icon" style="display:flex; line-height:0;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="8" width="12" height="13" rx="1"/>
+              <path d="M9 8V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-5"/>
+            </svg>
+          </span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -849,12 +864,45 @@
       longPressPointerId = null;
     }
 
+    // --- Copy coordinates button (inside the "Nuevo marcador" dialog) ---
+    const COPY_ICON_HTML = document.getElementById('copy-coords-icon').innerHTML;
+    const CHECK_ICON_HTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+    async function copyMarkerCoords() {
+      const input = document.getElementById('marker-coords-input');
+      const text = input.value;
+      if (!text) return;
+
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch (err) {
+        // Fallback for browsers/contexts where the Clipboard API is blocked
+        try {
+          input.focus();
+          input.select();
+          input.setSelectionRange(0, text.length);
+          ok = document.execCommand('copy');
+          input.blur();
+        } catch (err2) {}
+      }
+
+      if (ok) {
+        const icon = document.getElementById('copy-coords-icon');
+        icon.innerHTML = CHECK_ICON_HTML;
+        setTimeout(() => { icon.innerHTML = COPY_ICON_HTML; }, 1200);
+      }
+    }
+
     function triggerLongPress(latlng) {
       if (!latlng) return;
       if (navigator.vibrate) {
         try { navigator.vibrate(35); } catch (err) {}
       }
       pendingMarkerLatLng = latlng;
+      document.getElementById('marker-coords-input').value =
+        `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
       if (ghostMarker) map.removeLayer(ghostMarker);
       ghostMarker = L.marker(latlng, { icon: pinIcon, opacity: 0.75 }).addTo(map);
       const input = document.getElementById('marker-name-input');

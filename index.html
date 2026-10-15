@@ -258,6 +258,28 @@
       to   { opacity: 1; }
     }
 
+    .sc-fallg {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      animation: sc-fall 750ms cubic-bezier(.45, 0, .8, .6) both;
+    }
+    @keyframes sc-fall {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      15%  { transform: translate(calc(var(--fx) * 0.2), calc(var(--fy) * -0.25)) rotate(calc(var(--fr) * 0.15)); }
+      100% { transform: translate(var(--fx), var(--fy)) rotate(var(--fr)); }
+    }
+
+    .sc-dust {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      animation: sc-dust 900ms ease-out both;
+    }
+    @keyframes sc-dust {
+      0%   { transform: scale(0.3); opacity: 0; }
+      20%  { opacity: 0.7; }
+      100% { transform: scale(2.1); opacity: 0; }
+    }
+
     .sc-run {
       animation-name: sc-run;
       animation-timing-function: linear;
@@ -1091,30 +1113,58 @@
     // Built fresh every time the popup opens, so the CSS animations always
     // start from the beginning.
     //
-    // The "stone circle" is drawn as a continuous dry-stone wall (like the
+    // The "stone circle" is a complete, unbroken dry-stone wall (like the
     // foundations of a castro hut): three staggered rows of blocks around
-    // an ellipse, with a flat capstone ring on top and two gaps (entrances)
-    // left and right for the boars to run through.
+    // an ellipse, with a flat capstone ring on top. A moment after it's
+    // built, the boars burst out through the left and right sides and
+    // knock the upper blocks there off the wall.
     function buildSecretScene() {
       const cx = 130, by = 90;     // wall centre x, floor centre y
       const RXo = 60, RYo = 23;    // outer face ellipse radii
-      const RXi = 50, RYi = 18;    // inner face ellipse radii
+      const RXi = 48, RYi = 17;    // inner face ellipse radii
       const H = 15, COURSES = 3;   // wall height, rows of stones
       const N = 28;                // blocks per row
       const D = (Math.PI * 2) / N;
-      const GAP = 0.35;            // half-width (radians) of each entrance
+      const KZ = 0.55;             // half-width (radians) of the damaged zone on each side
+      const HIT_RIGHT = 1.7, HIT_LEFT = 2.0; // seconds when the first boar hits each side
       const COLORS = ['#8f897c', '#857f72', '#9a9486', '#7b7568', '#8a8476'];
       const CAPS = ['#a8a193', '#b1ab9c', '#9d978a'];
 
+      const rnd = (n) => {
+        const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      };
       const angDist = (a, b) => {
         let d = (a - b) % (Math.PI * 2);
         if (d > Math.PI) d -= Math.PI * 2;
         if (d < -Math.PI) d += Math.PI * 2;
         return Math.abs(d);
       };
-      const inGap = (c) => angDist(c, 0) < GAP || angDist(c, Math.PI) < GAP;
       const pt = (rx, ry, th, z) => [cx + rx * Math.cos(th), by + ry * Math.sin(th) - z];
       const f = (p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
+
+      // Wrap a shape so it tumbles to the ground at the given time.
+      const tumble = (inner, c, zc, dd, side, j, seed, isFront) => {
+        const hit = side === 0 ? HIT_RIGHT : HIT_LEFT;
+        const delay = hit + (2 - j) * 0.05 + dd * 0.35 + rnd(seed) * 0.12;
+        const dir = Math.cos(c) >= 0 ? 1 : -1;
+        const fx = dir * (5 + rnd(seed + 1) * 10);
+        const fy = zc - 1 + rnd(seed + 2) * 4 + (isFront ? 3 : 0);
+        const fr = (rnd(seed + 3) - 0.5) * 150;
+        return `<g class="sc-fallg" style="--fx:${fx.toFixed(1)}px; --fy:${fy.toFixed(1)}px; --fr:${fr.toFixed(0)}deg; animation-delay:${delay.toFixed(2)}s;">${inner}</g>`;
+      };
+
+      // Decide whether a block at angle c, row j gets knocked off.
+      const zoneInfo = (c) => {
+        const side = angDist(c, 0) < angDist(c, Math.PI) ? 0 : Math.PI;
+        return { side, dd: angDist(c, side) };
+      };
+      const falls = (dd, j, seed) => {
+        if (dd >= KZ) return false;
+        if (j === 2) return rnd(seed) > 0.12;
+        if (j === 1) return dd < 0.4 && rnd(seed) > 0.3;
+        return dd < 0.2 && rnd(seed) > 0.5;
+      };
 
       const back = [], front = [], tops = [];
 
@@ -1123,31 +1173,47 @@
         const shift = (j % 2) * D / 2; // stagger every other row, like masonry
         for (let k = 0; k < N; k++) {
           const t1 = k * D + shift, t2 = t1 + D, c = (t1 + t2) / 2;
-          if (inGap(c)) continue;
           const isFront = Math.sin(c) > 0;
           const rx = isFront ? RXo : RXi, ry = isFront ? RYo : RYi;
           const p1 = pt(rx, ry, t1, z0), p2 = pt(rx, ry, t2, z0);
           const p3 = pt(rx, ry, t2, z1), p4 = pt(rx, ry, t1, z1);
           const frac = (c % (Math.PI * 2)) / (Math.PI * 2);
-          const delay = (j * 0.1 + frac * 0.3).toFixed(2);
+          const riseDelay = (j * 0.1 + frac * 0.3).toFixed(2);
           const color = COLORS[(j * 7 + k * 13 + j * k) % COLORS.length];
           const d = `M ${f(p1)} A ${rx} ${ry} 0 0 1 ${f(p2)} L ${f(p3)} A ${rx} ${ry} 0 0 0 ${f(p4)} Z`;
-          const svg = `<path class="sc-stone" style="animation-delay:${delay}s" d="${d}" fill="${color}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`;
+          let svg = `<path class="sc-stone" style="animation-delay:${riseDelay}s" d="${d}" fill="${color}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`;
+          const { side, dd } = zoneInfo(c);
+          const seed = j * 100 + k;
+          if (falls(dd, j, seed)) {
+            svg = tumble(svg, c, (z0 + z1) / 2, dd, side, j, seed, isFront);
+          }
           (isFront ? front : back).push(svg);
         }
       }
 
       for (let k = 0; k < N; k++) {
         const t1 = k * D, t2 = t1 + D, c = (t1 + t2) / 2;
-        if (inGap(c)) continue;
         const o1 = pt(RXo, RYo, t1, H), o2 = pt(RXo, RYo, t2, H);
         const i2 = pt(RXi, RYi, t2, H), i1 = pt(RXi, RYi, t1, H);
         const d = `M ${f(o1)} A ${RXo} ${RYo} 0 0 1 ${f(o2)} L ${f(i2)} A ${RXi} ${RYi} 0 0 0 ${f(i1)} Z`;
-        tops.push(`<path class="sc-fade" style="animation-delay:0.5s" d="${d}" fill="${CAPS[(k * 5) % CAPS.length]}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`);
+        let svg = `<path class="sc-fade" style="animation-delay:0.5s" d="${d}" fill="${CAPS[(k * 5) % CAPS.length]}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`;
+        const { side, dd } = zoneInfo(c);
+        if (dd < KZ && rnd(900 + k) > 0.1) {
+          svg = tumble(svg, c, H, dd, side, 3, 900 + k, Math.sin(c) > 0);
+        }
+        tops.push(svg);
       }
 
-      // dir: 1 = runs right, -1 = runs left. Feet land on the floor line so
-      // they pass through the entrances in the wall.
+      // Dust puffs where each side gets hit.
+      const dust = [];
+      [[1, HIT_RIGHT], [-1, HIT_LEFT]].forEach(([s, t]) => {
+        for (let i = 0; i < 3; i++) {
+          dust.push(`<circle class="sc-dust" cx="${cx + s * (RXo + 2 + i * 4)}" cy="${by - 3 - i * 4}" r="${7 - i}" fill="#cdc3ab" style="animation-delay:${(t + 0.05 + i * 0.05).toFixed(2)}s"/>`);
+        }
+      });
+
+      // dir: 1 = runs right, -1 = runs left. Feet land on the floor line, so
+      // they hit the wall right at the base and barrel through.
       const boars = [
         { x: 108, y: 72.5, s: 1.00, dir:  1, delay: 1.00, dur: 2.3 },
         { x: 148, y: 78.0, s: 0.90, dir: -1, delay: 1.25, dur: 2.4 },
@@ -1166,11 +1232,12 @@
 
       return `<svg viewBox="0 0 260 150" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; height:auto;">
         <ellipse cx="130" cy="88" rx="124" ry="56" fill="#1f2a17"/>
-        <ellipse cx="130" cy="${by}" rx="50" ry="18" fill="#2b3a1f"/>
+        <ellipse cx="130" cy="${by}" rx="48" ry="17" fill="#2b3a1f"/>
         <ellipse cx="130" cy="${by + 2}" rx="63" ry="25" fill="#000" opacity="0.28"/>
         ${back.join('')}
         ${tops.join('')}
         ${front.join('')}
+        ${dust.join('')}
         ${boarsSvg}
       </svg>`;
     }

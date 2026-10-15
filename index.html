@@ -229,6 +229,57 @@
       transition: color 150ms ease;
     }
     .icon-btn-trash:hover { color: #D98B7A; }
+
+    /* --- Secret marker (triquetra) + its stone-circle / boar popup --- */
+    .secret-pop {
+      transform-origin: 50% 50%;
+      animation: sc-pop 280ms cubic-bezier(.2, 1.5, .4, 1) both;
+    }
+    @keyframes sc-pop {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+
+    .secret-popup .leaflet-popup-content { margin: 8px; }
+
+    .sc-stone {
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: sc-rise 380ms cubic-bezier(.2, 1.4, .4, 1) both;
+    }
+    @keyframes sc-rise {
+      from { transform: scaleY(0); }
+      to   { transform: scaleY(1); }
+    }
+
+    .sc-run {
+      animation-name: sc-run;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+    }
+    @keyframes sc-run {
+      0%   { transform: translateX(0); opacity: 0; }
+      6%   { opacity: 1; }
+      100% { transform: translateX(var(--dist)); opacity: 1; }
+    }
+
+    .sc-bob { animation: sc-bob 300ms ease-in-out infinite alternate; }
+    @keyframes sc-bob {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-3px); }
+    }
+
+    .sc-leg {
+      transform-box: fill-box;
+      transform-origin: 50% 0%;
+      animation: sc-leg 300ms linear infinite;
+    }
+    .sc-leg.b { animation-delay: -150ms; }
+    @keyframes sc-leg {
+      0%   { transform: rotate(35deg); }
+      50%  { transform: rotate(-35deg); }
+      100% { transform: rotate(35deg); }
+    }
   </style>
 </head>
 <body class="overflow-hidden">
@@ -975,6 +1026,158 @@
     mapContainer.addEventListener('contextmenu', (e) => e.preventDefault());
 
     loadSavedMarkers();
+
+    // --- Secret easter egg: hidden triquetra marker ---
+    //
+    // Deliberately NOT part of savedMarkers, so it never shows up in the
+    // "Marcadores guardados" list, can't be deleted, and isn't persisted.
+    // It only exists on the map while zoomed in to SECRET_MIN_ZOOM or
+    // closer. Tapping it plays a little stone-circle + boars animation in
+    // a popup, then the popup closes by itself and the marker vanishes
+    // until the app is closed and reopened (secretFound lives in memory
+    // only, on purpose).
+    const SECRET_LATLNG = [42.267417, -7.950639]; // 42°16'02.7"N 7°57'02.3"W
+    const SECRET_MIN_ZOOM = 19;   // change this to make it easier/harder to find (map max is 20)
+    const SECRET_ANIM_MS = 4800;  // how long until the popup closes itself
+    let secretFound = false;
+    let secretMarker = null;
+    let secretTimer = null;
+
+    // Triquetra: three interlaced vesica (lens) shapes inside a ring.
+    const triquetraIcon = L.divIcon({
+      className: '',
+      html: `
+        <svg class="secret-pop" width="38" height="38" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="display:block; overflow:visible;">
+          <circle cx="20" cy="20" r="17.5" fill="rgba(20,17,15,0.85)" stroke="#14110F" stroke-width="4.2"/>
+          <circle cx="20" cy="20" r="17.5" fill="none" stroke="#E8B84B" stroke-width="1.8"/>
+          <g fill="none" stroke-linejoin="round">
+            <path d="M20 4.70 A13.8 13.8 0 0 1 20 23.80 A13.8 13.8 0 0 1 20 4.70 Z" stroke="#14110F" stroke-width="4.2"/>
+            <path d="M20 4.70 A13.8 13.8 0 0 1 20 23.80 A13.8 13.8 0 0 1 20 4.70 Z" stroke="#E8B84B" stroke-width="2"/>
+            <path d="M6.75 27.65 A13.8 13.8 0 0 1 23.29 18.10 A13.8 13.8 0 0 1 6.75 27.65 Z" stroke="#14110F" stroke-width="4.2"/>
+            <path d="M6.75 27.65 A13.8 13.8 0 0 1 23.29 18.10 A13.8 13.8 0 0 1 6.75 27.65 Z" stroke="#E8B84B" stroke-width="2"/>
+            <path d="M33.25 27.65 A13.8 13.8 0 0 0 16.71 18.10 A13.8 13.8 0 0 0 33.25 27.65 Z" stroke="#14110F" stroke-width="4.2"/>
+            <path d="M33.25 27.65 A13.8 13.8 0 0 0 16.71 18.10 A13.8 13.8 0 0 0 33.25 27.65 Z" stroke="#E8B84B" stroke-width="2"/>
+          </g>
+        </svg>
+      `,
+      iconSize: [38, 38],
+      iconAnchor: [19, 19],
+      popupAnchor: [0, -20]
+    });
+
+    const BOAR_SVG = `
+      <g class="sc-bob">
+        <g transform="translate(-9,5)"><rect class="sc-leg" x="-1.4" y="0" width="2.8" height="9" rx="1.2" fill="#2a190f"/></g>
+        <g transform="translate(9,5)"><rect class="sc-leg b" x="-1.4" y="0" width="2.8" height="9" rx="1.2" fill="#2a190f"/></g>
+        <path d="M-14 -3 Q-20 -5 -18 -11" stroke="#3a2619" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <ellipse cx="0" cy="0" rx="15" ry="8.5" fill="#5a3d2b"/>
+        <path d="M-12 -6 l3 -5 l3 4 l3 -5 l3 4 l3 -5 l3 4 l3 -4 l1 2 z" fill="#2e1d12"/>
+        <ellipse cx="14" cy="2.5" rx="7.5" ry="6" fill="#6b4a35"/>
+        <path d="M10.5 -3 l3 -6 l3.5 6 z" fill="#2e1d12"/>
+        <ellipse cx="21" cy="4.5" rx="3.6" ry="3.1" fill="#d9a08a"/>
+        <circle cx="22.2" cy="3.8" r="0.7" fill="#4a2c22"/>
+        <path d="M18 7 L20.5 2.5 L21.5 7.5 z" fill="#f3e9d2"/>
+        <circle cx="15.6" cy="0.8" r="1.1" fill="#14110F"/>
+        <g transform="translate(-5,5)"><rect class="sc-leg" x="-1.4" y="0" width="2.8" height="9" rx="1.2" fill="#3a2619"/></g>
+        <g transform="translate(5,5)"><rect class="sc-leg b" x="-1.4" y="0" width="2.8" height="9" rx="1.2" fill="#3a2619"/></g>
+      </g>`;
+
+    // Built fresh every time the popup opens, so the CSS animations always
+    // start from the beginning.
+    function buildSecretScene() {
+      const cx = 130, cy = 84, rx = 58, ry = 22, n = 11;
+
+      const stones = [];
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2 + 0.3;
+        stones.push({ i, x: cx + rx * Math.cos(ang), y: cy + ry * Math.sin(ang) });
+      }
+      stones.sort((a, b) => a.y - b.y); // back stones first, front stones last
+
+      const stoneSvg = stones.map((s, order) => {
+        const w = 9 + (s.i * 7) % 4;
+        const h = 12 + 8 * ((s.y - (cy - ry)) / (2 * ry));
+        const delay = (order * 0.05).toFixed(2);
+        return `<g transform="translate(${s.x.toFixed(1)},${s.y.toFixed(1)})">
+          <ellipse cx="0" cy="1" rx="${(w * 0.75).toFixed(1)}" ry="2.2" fill="#000" opacity="0.3"/>
+          <g class="sc-stone" style="animation-delay:${delay}s">
+            <rect x="${(-w / 2).toFixed(1)}" y="${(-h).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="3" fill="#8f897c" stroke="#14110F" stroke-width="1"/>
+            <rect x="0" y="${(-h + 1).toFixed(1)}" width="${(w / 2 - 0.5).toFixed(1)}" height="${(h - 2).toFixed(1)}" rx="2" fill="#000" opacity="0.18"/>
+          </g>
+        </g>`;
+      }).join('');
+
+      // dir: 1 = runs right, -1 = runs left
+      const boars = [
+        { x: 112, y: 80, s: 1.00, dir:  1, delay: 0.90, dur: 2.3 },
+        { x: 140, y: 92, s: 0.90, dir: -1, delay: 1.15, dur: 2.4 },
+        { x: 118, y: 72, s: 0.80, dir:  1, delay: 1.40, dur: 2.4 },
+        { x: 144, y: 98, s: 1.05, dir: -1, delay: 1.65, dur: 2.2 },
+        { x: 126, y: 86, s: 0.70, dir:  1, delay: 1.90, dur: 2.3 }
+      ];
+
+      const boarsSvg = boars.map(b => `
+        <g transform="translate(${b.x},${b.y}) scale(${b.dir * b.s},${b.s})">
+          <g class="sc-run" style="--dist:${Math.round(230 / b.s)}px; animation-delay:${b.delay}s; animation-duration:${b.dur}s;">
+            <ellipse cx="2" cy="14.5" rx="16" ry="2.5" fill="#000" opacity="0.28"/>
+            ${BOAR_SVG}
+          </g>
+        </g>`).join('');
+
+      return `<svg viewBox="0 0 260 150" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; height:auto;">
+        <ellipse cx="130" cy="88" rx="124" ry="56" fill="#1f2a17"/>
+        <ellipse cx="130" cy="84" rx="64" ry="26" fill="#2b3a1f"/>
+        ${stoneSvg}
+        ${boarsSvg}
+      </svg>`;
+    }
+
+    function finishSecret() {
+      secretTimer = null;
+      secretFound = true;
+      map.closePopup();
+      if (secretMarker) {
+        map.removeLayer(secretMarker);
+        secretMarker = null;
+      }
+    }
+
+    function createSecretMarker() {
+      secretMarker = L.marker(SECRET_LATLNG, { icon: triquetraIcon, keyboard: false });
+      secretMarker.bindPopup(buildSecretScene, {
+        className: 'secret-popup',
+        closeButton: false,
+        minWidth: 240,
+        maxWidth: 240
+      });
+      secretMarker.on('popupopen', () => {
+        if (secretTimer) clearTimeout(secretTimer);
+        secretTimer = setTimeout(finishSecret, SECRET_ANIM_MS);
+      });
+      // If the person closes it early (taps elsewhere), cancel the
+      // auto-finish so the marker stays and they can tap it again.
+      secretMarker.on('popupclose', () => {
+        if (secretTimer) {
+          clearTimeout(secretTimer);
+          secretTimer = null;
+        }
+      });
+      secretMarker.addTo(map);
+    }
+
+    function updateSecretVisibility() {
+      if (secretFound) return;
+      const shouldShow = map.getZoom() >= SECRET_MIN_ZOOM;
+      if (shouldShow && !secretMarker) {
+        createSecretMarker();
+      } else if (!shouldShow && secretMarker) {
+        map.removeLayer(secretMarker);
+        secretMarker = null;
+      }
+    }
+
+    map.on('zoomend', updateSecretVisibility);
+    updateSecretVisibility();
 
     // --- Geolocation Tracking ---
     let userMarker = null;

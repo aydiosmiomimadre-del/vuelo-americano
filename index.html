@@ -252,6 +252,12 @@
       to   { transform: scaleY(1); }
     }
 
+    .sc-fade { animation: sc-fade 300ms ease-out both; }
+    @keyframes sc-fade {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
     .sc-run {
       animation-name: sc-run;
       animation-timing-function: linear;
@@ -1084,36 +1090,70 @@
 
     // Built fresh every time the popup opens, so the CSS animations always
     // start from the beginning.
+    //
+    // The "stone circle" is drawn as a continuous dry-stone wall (like the
+    // foundations of a castro hut): three staggered rows of blocks around
+    // an ellipse, with a flat capstone ring on top and two gaps (entrances)
+    // left and right for the boars to run through.
     function buildSecretScene() {
-      const cx = 130, cy = 84, rx = 58, ry = 22, n = 11;
+      const cx = 130, by = 90;     // wall centre x, floor centre y
+      const RXo = 60, RYo = 23;    // outer face ellipse radii
+      const RXi = 50, RYi = 18;    // inner face ellipse radii
+      const H = 15, COURSES = 3;   // wall height, rows of stones
+      const N = 28;                // blocks per row
+      const D = (Math.PI * 2) / N;
+      const GAP = 0.35;            // half-width (radians) of each entrance
+      const COLORS = ['#8f897c', '#857f72', '#9a9486', '#7b7568', '#8a8476'];
+      const CAPS = ['#a8a193', '#b1ab9c', '#9d978a'];
 
-      const stones = [];
-      for (let i = 0; i < n; i++) {
-        const ang = (i / n) * Math.PI * 2 + 0.3;
-        stones.push({ i, x: cx + rx * Math.cos(ang), y: cy + ry * Math.sin(ang) });
+      const angDist = (a, b) => {
+        let d = (a - b) % (Math.PI * 2);
+        if (d > Math.PI) d -= Math.PI * 2;
+        if (d < -Math.PI) d += Math.PI * 2;
+        return Math.abs(d);
+      };
+      const inGap = (c) => angDist(c, 0) < GAP || angDist(c, Math.PI) < GAP;
+      const pt = (rx, ry, th, z) => [cx + rx * Math.cos(th), by + ry * Math.sin(th) - z];
+      const f = (p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
+
+      const back = [], front = [], tops = [];
+
+      for (let j = 0; j < COURSES; j++) {
+        const z0 = (H / COURSES) * j, z1 = (H / COURSES) * (j + 1);
+        const shift = (j % 2) * D / 2; // stagger every other row, like masonry
+        for (let k = 0; k < N; k++) {
+          const t1 = k * D + shift, t2 = t1 + D, c = (t1 + t2) / 2;
+          if (inGap(c)) continue;
+          const isFront = Math.sin(c) > 0;
+          const rx = isFront ? RXo : RXi, ry = isFront ? RYo : RYi;
+          const p1 = pt(rx, ry, t1, z0), p2 = pt(rx, ry, t2, z0);
+          const p3 = pt(rx, ry, t2, z1), p4 = pt(rx, ry, t1, z1);
+          const frac = (c % (Math.PI * 2)) / (Math.PI * 2);
+          const delay = (j * 0.1 + frac * 0.3).toFixed(2);
+          const color = COLORS[(j * 7 + k * 13 + j * k) % COLORS.length];
+          const d = `M ${f(p1)} A ${rx} ${ry} 0 0 1 ${f(p2)} L ${f(p3)} A ${rx} ${ry} 0 0 0 ${f(p4)} Z`;
+          const svg = `<path class="sc-stone" style="animation-delay:${delay}s" d="${d}" fill="${color}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`;
+          (isFront ? front : back).push(svg);
+        }
       }
-      stones.sort((a, b) => a.y - b.y); // back stones first, front stones last
 
-      const stoneSvg = stones.map((s, order) => {
-        const w = 9 + (s.i * 7) % 4;
-        const h = 12 + 8 * ((s.y - (cy - ry)) / (2 * ry));
-        const delay = (order * 0.05).toFixed(2);
-        return `<g transform="translate(${s.x.toFixed(1)},${s.y.toFixed(1)})">
-          <ellipse cx="0" cy="1" rx="${(w * 0.75).toFixed(1)}" ry="2.2" fill="#000" opacity="0.3"/>
-          <g class="sc-stone" style="animation-delay:${delay}s">
-            <rect x="${(-w / 2).toFixed(1)}" y="${(-h).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="3" fill="#8f897c" stroke="#14110F" stroke-width="1"/>
-            <rect x="0" y="${(-h + 1).toFixed(1)}" width="${(w / 2 - 0.5).toFixed(1)}" height="${(h - 2).toFixed(1)}" rx="2" fill="#000" opacity="0.18"/>
-          </g>
-        </g>`;
-      }).join('');
+      for (let k = 0; k < N; k++) {
+        const t1 = k * D, t2 = t1 + D, c = (t1 + t2) / 2;
+        if (inGap(c)) continue;
+        const o1 = pt(RXo, RYo, t1, H), o2 = pt(RXo, RYo, t2, H);
+        const i2 = pt(RXi, RYi, t2, H), i1 = pt(RXi, RYi, t1, H);
+        const d = `M ${f(o1)} A ${RXo} ${RYo} 0 0 1 ${f(o2)} L ${f(i2)} A ${RXi} ${RYi} 0 0 0 ${f(i1)} Z`;
+        tops.push(`<path class="sc-fade" style="animation-delay:0.5s" d="${d}" fill="${CAPS[(k * 5) % CAPS.length]}" stroke="#14110F" stroke-width="0.8" stroke-linejoin="round"/>`);
+      }
 
-      // dir: 1 = runs right, -1 = runs left
+      // dir: 1 = runs right, -1 = runs left. Feet land on the floor line so
+      // they pass through the entrances in the wall.
       const boars = [
-        { x: 112, y: 80, s: 1.00, dir:  1, delay: 0.90, dur: 2.3 },
-        { x: 140, y: 92, s: 0.90, dir: -1, delay: 1.15, dur: 2.4 },
-        { x: 118, y: 72, s: 0.80, dir:  1, delay: 1.40, dur: 2.4 },
-        { x: 144, y: 98, s: 1.05, dir: -1, delay: 1.65, dur: 2.2 },
-        { x: 126, y: 86, s: 0.70, dir:  1, delay: 1.90, dur: 2.3 }
+        { x: 108, y: 72.5, s: 1.00, dir:  1, delay: 1.00, dur: 2.3 },
+        { x: 148, y: 78.0, s: 0.90, dir: -1, delay: 1.25, dur: 2.4 },
+        { x: 118, y: 78.4, s: 0.80, dir:  1, delay: 1.50, dur: 2.4 },
+        { x: 140, y: 73.8, s: 1.05, dir: -1, delay: 1.75, dur: 2.2 },
+        { x: 126, y: 81.9, s: 0.70, dir:  1, delay: 2.00, dur: 2.3 }
       ];
 
       const boarsSvg = boars.map(b => `
@@ -1126,8 +1166,11 @@
 
       return `<svg viewBox="0 0 260 150" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; height:auto;">
         <ellipse cx="130" cy="88" rx="124" ry="56" fill="#1f2a17"/>
-        <ellipse cx="130" cy="84" rx="64" ry="26" fill="#2b3a1f"/>
-        ${stoneSvg}
+        <ellipse cx="130" cy="${by}" rx="50" ry="18" fill="#2b3a1f"/>
+        <ellipse cx="130" cy="${by + 2}" rx="63" ry="25" fill="#000" opacity="0.28"/>
+        ${back.join('')}
+        ${tops.join('')}
+        ${front.join('')}
         ${boarsSvg}
       </svg>`;
     }
